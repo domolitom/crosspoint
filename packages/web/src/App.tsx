@@ -109,6 +109,23 @@ export default function App() {
     [sendOp],
   );
 
+  const onReconnect = useCallback(
+    (oldEdge: Edge, connection: Connection) => {
+      // Same rule as onConnect: no optimistic update. The server regenerates the id from
+      // the new endpoints, so a locally reconnected edge would carry a stale id until the
+      // push replaced it.
+      if (connection.source && connection.target) {
+        sendOp({
+          op: 'reconnect_edge',
+          id: oldEdge.id,
+          source: connection.source,
+          target: connection.target,
+        });
+      }
+    },
+    [sendOp],
+  );
+
   const onNodesDelete = useCallback(
     (deleted: Node[]) => {
       for (const node of deleted) sendOp({ op: 'delete_node', id: node.id });
@@ -160,6 +177,9 @@ export default function App() {
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onConnect={onConnect}
+        onReconnect={onReconnect}
+        // Default is 10px, which makes the endpoint fiddly to grab on a curved edge.
+        reconnectRadius={20}
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
         onNodeDoubleClick={onNodeDoubleClick}

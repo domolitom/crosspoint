@@ -99,6 +99,26 @@ server.registerTool(
 );
 
 server.registerTool(
+  'reconnect_edge',
+  {
+    title: 'Reconnect edge',
+    description:
+      'Move an existing edge to different endpoints, keeping its label. Use this rather ' +
+      'than delete_edge plus add_edge when an arrow is pointing at the wrong node — it is ' +
+      'one change instead of two, and the label survives. Note the edge id changes: ids ' +
+      'are derived from their endpoints, so an edge that now runs elsewhere gets a new ' +
+      'one. Read it back from the returned graph rather than reusing the old id.',
+    inputSchema: {
+      id: z.string().describe('Id of the edge to move.'),
+      source: z.string().describe('Id of the node the edge should now leave.'),
+      target: z.string().describe('Id of the node the edge should now enter.'),
+    },
+  },
+  async ({ id, source, target }) =>
+    ok(await applyOp({ op: 'reconnect_edge', id, source, target })),
+);
+
+server.registerTool(
   'update_node',
   {
     title: 'Update node',

@@ -134,6 +134,37 @@ test('agent structural edits do not disturb a human-placed node', async () => {
   assert.equal(auth.data.label, 'Auth API', 'relabel still applied');
 });
 
+test('a reconnect reaches the canvas live and lands on disk', async () => {
+  await agentOp({ op: 'add_node', label: 'Cache' });
+  const before = received.length;
+
+  const { status } = await agentOp({
+    op: 'reconnect_edge',
+    id: 'auth-service->database',
+    source: 'auth-service',
+    target: 'cache',
+  });
+  assert.equal(status, 200);
+
+  const pushed = await until('canvas to see the reconnected edge', () =>
+    received
+      .slice(before)
+      .find((g) => g.edges.some((e: any) => e.id === 'auth-service->cache')),
+  );
+  assert.ok(pushed, 'the canvas was pushed the moved edge');
+
+  const graph = await until('reconnect to reach disk', async () => {
+    const g = await readGraphFile();
+    return g.edges.some((e: any) => e.id === 'auth-service->cache') ? g : null;
+  });
+  const edge = graph.edges.find((e: any) => e.id === 'auth-service->cache');
+  assert.equal(edge.target, 'cache');
+  assert.ok(
+    !graph.edges.some((e: any) => e.id === 'auth-service->database'),
+    'the old edge is gone rather than duplicated',
+  );
+});
+
 test('the agent view omits coordinates entirely', async () => {
   const { body } = await api('/api/graph/structural');
   assert.ok(!JSON.stringify(body).includes('position'));

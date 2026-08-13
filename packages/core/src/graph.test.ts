@@ -80,6 +80,87 @@ test('a drag lands on the grid', () => {
   assert.deepEqual(g.nodes.find((n) => n.id === 'database')!.position, { x: 345, y: 120 });
 });
 
+test('reconnecting an edge regenerates its id and keeps its label', () => {
+  let g = build();
+  g = applyOp(g, { op: 'add_node', label: 'Cache' });
+  g = applyOp(g, { op: 'update_edge', id: 'auth-service->database', label: 'reads' });
+
+  const next = applyOp(g, {
+    op: 'reconnect_edge',
+    id: 'auth-service->database',
+    source: 'auth-service',
+    target: 'cache',
+  });
+
+  assert.equal(next.edges.length, 1);
+  assert.equal(next.edges[0].id, 'auth-service->cache', 'id follows the new endpoints');
+  assert.equal(next.edges[0].target, 'cache');
+  assert.equal(next.edges[0].label, 'reads', 'label survives the move');
+});
+
+test('a reconnected edge stays at the same index, so the diff stays small', () => {
+  let g = emptyGraph();
+  for (const label of ['A', 'B', 'C']) g = applyOp(g, { op: 'add_node', label });
+  g = applyOp(g, { op: 'add_edge', source: 'a', target: 'b' });
+  g = applyOp(g, { op: 'add_edge', source: 'b', target: 'c' });
+  g = applyOp(g, { op: 'add_edge', source: 'c', target: 'a' });
+
+  const next = applyOp(g, { op: 'reconnect_edge', id: 'b->c', source: 'b', target: 'a' });
+
+  assert.deepEqual(next.edges.map((e) => e.id), ['a->b', 'b->a', 'c->a']);
+});
+
+test('reconnecting does not move any node', () => {
+  let g = build();
+  g = applyOp(g, { op: 'add_node', label: 'Cache' });
+  g = applyOp(g, { op: 'move_node', id: 'database', position: { x: 600, y: 300 } });
+  const before = g.nodes.map((n) => ({ ...n.position! }));
+
+  const next = applyOp(g, {
+    op: 'reconnect_edge',
+    id: 'auth-service->database',
+    source: 'auth-service',
+    target: 'cache',
+  });
+
+  assert.deepEqual(next.nodes.map((n) => ({ ...n.position! })), before);
+});
+
+test('reconnecting bumps rev', () => {
+  const g = build();
+  const next = applyOp(g, {
+    op: 'reconnect_edge',
+    id: 'auth-service->database',
+    source: 'database',
+    target: 'auth-service',
+  });
+  assert.equal(next.rev, g.rev + 1);
+});
+
+test('reconnecting rejects unknown edge and node ids', () => {
+  const g = build();
+  assert.throws(
+    () =>
+      applyOp(g, {
+        op: 'reconnect_edge',
+        id: 'ghost->database',
+        source: 'auth-service',
+        target: 'database',
+      }),
+    GraphError,
+  );
+  assert.throws(
+    () =>
+      applyOp(g, {
+        op: 'reconnect_edge',
+        id: 'auth-service->database',
+        source: 'auth-service',
+        target: 'ghost',
+      }),
+    GraphError,
+  );
+});
+
 test('deleting a node cascades to its edges', () => {
   const g = applyOp(build(), { op: 'delete_node', id: 'database' });
   assert.equal(g.edges.length, 0);

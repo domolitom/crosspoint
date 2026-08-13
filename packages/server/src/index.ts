@@ -13,6 +13,7 @@ const store = await GraphStore.open(GRAPH_PATH);
 const KNOWN_OPS = new Set([
   'add_node',
   'add_edge',
+  'reconnect_edge',
   'update_node',
   'update_edge',
   'delete_node',

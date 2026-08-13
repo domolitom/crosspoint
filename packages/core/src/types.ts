@@ -53,6 +53,7 @@ export const emptyGraph = (): Graph => ({ rev: 0, nodes: [], edges: [] });
 export type StructuralOp =
   | { op: 'add_node'; label: string; near?: string; data?: Record<string, unknown> }
   | { op: 'add_edge'; source: string; target: string; label?: string }
+  | { op: 'reconnect_edge'; id: string; source: string; target: string }
   | { op: 'update_node'; id: string; label?: string; data?: Record<string, unknown> }
   | { op: 'update_edge'; id: string; label?: string }
   | { op: 'delete_node'; id: string }

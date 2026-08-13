@@ -84,6 +84,29 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       return { ...next, edges: [...graph.edges, edge] };
     }
 
+    case 'reconnect_edge': {
+      const existing = graph.edges.find((e) => e.id === op.id);
+      if (!existing) throw new GraphError(`No edge with id "${op.id}"`);
+      requireNode(graph, op.source, 'source');
+      requireNode(graph, op.target, 'target');
+
+      // Ids are derived from their endpoints, so an edge that now runs somewhere else
+      // needs a new one — otherwise `auth->database` could describe an edge into the
+      // cache, and the id stops being something an agent can reason about. Nothing
+      // references edge ids, so regenerating is safe.
+      const taken = new Set(graph.edges.filter((e) => e.id !== op.id).map((e) => e.id));
+      const id = uniqueId(`${op.source}->${op.target}`, taken);
+      const reconnected: GraphEdge = { id, source: op.source, target: op.target };
+      if (existing.label !== undefined) reconnected.label = existing.label;
+
+      return {
+        ...next,
+        // Replaced in place rather than removed and appended, so array order stays
+        // stable and the diff shows one edge changing instead of a reshuffle.
+        edges: graph.edges.map((e) => (e.id === op.id ? reconnected : e)),
+      };
+    }
+
     case 'update_node': {
       requireNode(graph, op.id, 'id');
       return {
