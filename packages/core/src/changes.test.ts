@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { describeOp, kindOf, summarise, type LogEntry } from './changes.js';
+import { describeOp, kindOf, summarise, withoutLayout, type LogEntry } from './changes.js';
 
 const entry = (rev: number, op: LogEntry['op']): LogEntry => ({
   rev,
@@ -90,4 +90,31 @@ test('the summary is flat and chronological, tagged by diagram', () => {
 
 test('an empty feed says so rather than rendering nothing', () => {
   assert.equal(summarise([]), 'No changes.');
+});
+
+test('withoutLayout keeps the message and drops the repositioning', () => {
+  const feed = [
+    entry(1, { op: 'add_node', label: 'retry' }),
+    entry(2, { op: 'move_node', id: 'retry', position: { x: 15, y: 30 } }),
+    entry(3, { op: 'add_edge', source: 'fetch', target: 'retry' }),
+    entry(4, { op: 'move_node', id: 'fetch', position: { x: 0, y: 0 } }),
+    entry(5, { op: 'external_edit' }),
+  ];
+
+  assert.deepEqual(withoutLayout(feed).map((e) => e.rev), [1, 3, 5]);
+});
+
+// The ratio that made this the default rather than an option.
+test('withoutLayout rescues a feed that is mostly moves', () => {
+  const feed: LogEntry[] = [];
+  for (let i = 1; i <= 18; i++) {
+    feed.push(entry(i, { op: 'move_node', id: `n${i}`, position: { x: i, y: i } }));
+  }
+  feed.push(entry(19, { op: 'add_edge', source: 'a', target: 'b' }));
+  feed.push(entry(20, { op: 'delete_edge', id: 'c->d' }));
+
+  const kept = withoutLayout(feed);
+  assert.equal(feed.length, 20);
+  assert.equal(kept.length, 2, '90% of that feed was noise');
+  assert.ok(kept.every((e) => e.kind === 'structural'));
 });

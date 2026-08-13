@@ -39,6 +39,21 @@ export interface LogEntry {
   op: LoggedOp;
 }
 
+/**
+ * Drop repositioning from a feed.
+ *
+ * This is the default for the agent-facing feed, not a nicety. Measured on a real
+ * session: 18 of 20 entries were `layout` — the two that carried the actual message
+ * ("+ edge testy → test", "− edge test2->test3") were buried under nine times their
+ * number in `moved` lines. Multi-select makes it worse, since dragging three selected
+ * nodes emits three ops per gesture. A feed that has to be read to be useful cannot be
+ * 90% noise.
+ *
+ * `external` survives the filter: it means the picture is stale, which always matters.
+ */
+export const withoutLayout = (entries: LogEntry[]): LogEntry[] =>
+  entries.filter((entry) => entry.kind !== 'layout');
+
 export const kindOf = (op: LoggedOp): ChangeKind =>
   op.op === 'external_edit' ? 'external' : isLayoutOp(op) ? 'layout' : 'structural';
 
