@@ -18,101 +18,159 @@ node --test packages/core/dist/graph.test.js --test-name-pattern "placement"
 ```
 
 Tests compile first (`tsc`) and run against `dist/`, so a single test file is
-`node --test packages/<pkg>/dist/<name>.test.js`. Note that `node --test <dir>/` silently
-passes on zero matches — always use the `dist/*.test.js` glob.
+`node --test packages/<pkg>/dist/<name>.test.js`.
 
 The server takes the graph path as `argv[2]` or `CROSSPOINT_GRAPH`; port via
 `CROSSPOINT_PORT`. `.mcp.json` wires the MCP server up for Claude Code — it needs
 `npm run build` to have run, and the main server to be up.
 
+`graph.json` is gitignored on purpose. It is a live document the server rewrites on every
+edit; tracking it turns ordinary use into a dirty working tree. Never `git add` it, and never
+`git add -A` in this repo.
+
 ## What Crosspoint is
 
-A diagramming tool whose canonical format is a graph with **position as first-class data**, so a
-human and an AI agent can edit the *same* representation instead of the agent reconstructing an
-approximation from a screenshot.
+**A visual channel in the conversation, not a diagramming tool.** The user asks for something
+to be visualised, the agent renders it as a graph, the user edits the graph, and *the edit is
+the request* — the agent reads the diff and implements it in code. The picture is how the user
+talks to the agent, not an artifact they are curating.
 
-The canonical form is graph JSON, shaped like React Flow's internal model:
-
-```
-{ nodes: [{ id, position, data }], edges: [{ source, target, label }] }
-```
-
-## Design constraints to preserve
-
-These are the decisions that motivate the project; changes that violate them defeat its purpose.
-
-- **Position lives in the source of truth, not in the renderer.** This is the explicit reason the
-  project does not build on Mermaid or Graphviz/DOT: those describe structure only and let the
-  renderer compute layout, so a user's drag-to-reposition has nothing to write back to. Any
-  proposal to adopt a text-DSL diagram format needs to answer that.
-- **No image round-trip for agents.** Agent access is via reading/writing the graph structure
-  directly — either the JSON file, or an MCP server exposing structural operations (`add_node`,
-  `add_edge`, `update_node`, `get_graph`) for atomic edits. Screenshot-based understanding is the
-  problem being solved, not an acceptable fallback.
-- **Bidirectional and live.** Edits from either side (browser canvas, agent) must surface to the
-  other without a manual reload — via file-watch or a lightweight live-update channel.
+This framing matters when weighing changes. Optimise for the round trip being fast and
+unambiguous, not for the diagram being beautiful or permanent.
 
 ## Architecture
 
 Four workspaces under `packages/`:
 
-- **`core`** — the graph model. Types, `applyOp`, seed placement, diff-stable serialisation.
-  Pure and dependency-free; both the server and the canvas import it.
+- **`core`** — the graph model. Types, `applyOp`, placement, diff-stable serialisation. Pure
+  and dependency-free; both the server and the canvas import it.
 - **`server`** — owns the graph. HTTP + websocket on :4000, atomic file persistence.
 - **`web`** — Vite + React + `@xyflow/react` canvas on :5173, proxying `/api` and `/ws`.
 - **`mcp`** — stdio MCP server, a thin structural client of the HTTP API.
 
-**The server owns state; the file is persistence, not the live source of truth.** This was chosen
-over "everyone writes the file, a watcher fans changes out" specifically to avoid write-echo
-loops and half-written reads. The file watcher in `store.ts` exists only to pick up *external*
-edits (a human editing the JSON by hand), and distinguishes those from its own writes by
-comparing against the last text it wrote.
+**The server owns state; the file is persistence, not the live source of truth.** This was
+chosen over "everyone writes the file, a watcher fans changes out" specifically to avoid
+write-echo loops and half-written reads. The watcher in `store.ts` exists only to pick up
+*external* edits, and tells them from its own writes by comparing against the last text it
+wrote.
 
-Two details there are load-bearing and easy to regress:
+## Invariants — the things that are easy to regress
 
-- Persistence is write-to-temp-then-`rename`, so a watcher never sees a partial file.
-- The watcher watches the *directory*, not the file. `rename` swaps the inode, which silently
-  kills a file-level watch after the first save. This was a real bug caught by the round-trip
-  tests.
+### Coordinates never reach the agent's write surface
 
-### The read/write asymmetry (the core invariant)
+`StructuralOp` carries no coordinates; `LayoutOp` (`move_node`, `add_node_at`) does. Only
+structural ops are exposed over MCP, so **there is deliberately no `move_node` tool**. The
+agent cannot express a position, so it cannot overwrite one.
 
-Position is data the agent must **preserve**, not data it **consumes**. Pixel coordinates carry
-no meaning for reasoning about a diagram and only cost tokens; they are the human's payload.
+When adding any agent-facing capability, check it against this. A `position` field on
+`add_node` would silently destroy the invariant — which is why drag-to-create went in as a
+separate `add_node_at` *layout* op rather than a field on the existing structural one.
 
-This is enforced structurally, not by convention:
+Note this is now framed as a sensible default rather than the project's reason to exist. It
+stops the agent thrashing the user's arrangement mid-thought. Do not let it block genuinely
+useful agent capability; the escape hatch is semantic intent ops (`align`) that the server
+resolves into geometry, never raw pixels.
 
-- `StructuralOp` carries no coordinates; `LayoutOp` (`move_node`) does. See `core/src/types.ts`.
-- The MCP server exposes only structural ops — **there is deliberately no `move_node` tool**. An
-  agent cannot express a position, so it cannot clobber one.
-- `get_graph` returns `structuralView()` (ids, labels, edges — no geometry) unless
-  `include_positions` is passed.
-- `add_node` takes an optional `near: <nodeId>` hint instead of coordinates. The server places
-  the node clear of existing ones.
+### Placement seeds, it does not re-solve
 
-Placement is a *seed*, not an authority: `placeNode` only ever positions the new node and never
-moves existing ones. Running a global layout engine (dagre/elk) would re-solve the whole diagram
-and move nodes the human pinned — the exact failure mode stored positions exist to prevent.
+`placeNode` only ever positions the *new* node and never moves existing ones. Running a global
+layout engine over the whole graph would move nodes the human has pinned — the exact failure
+mode stored positions exist to prevent.
 
-Correspondingly, `normalize()` passes hand-written positions through verbatim. Loading a file
-must not rewrite the human's coordinates; snapping applies to drags and seeds only.
+The agreed exception, when it lands: dagre may lay out an **agent-generated** graph, because
+seeding a brand-new 40-node graph is a different act from re-solving one the human has
+arranged. Stored positions still win permanently once set.
 
-### Canvas specifics
+### Loading a file must not rewrite the human's coordinates
 
-Dragging updates local React state at 60fps but only persists on `onNodeDragStop` — intermediate
-positions are animation, not data. Incoming server state never overwrites a node that is mid-drag
-(tracked in a `dragging` ref), which is what stops an agent's structural edit from making the node
-you are holding jump.
+`normalize()` passes hand-written positions through verbatim. Snapping applies to drags and
+seeds only. An earlier version snapped on load, which silently moved `x: 400` to `405` just
+from opening the file.
 
-Edges render through `DirectedEdge.tsx` with an arrowhead, since `source`/`target` were always
-directed and the canvas should say what the data says. Where `A→B` and `B→A` both exist, their
-labels would stack; the component offsets each label along the normal to its own source→target
-axis. Two traps, both found by measuring the rendered DOM rather than by eye:
+### The server is the only authority on what exists
 
-- `pathOptions.curvature` cannot separate such a pair — React Flow ignores curvature whenever the
-  handles already face each other and uses `0.5 * distance` instead.
-- The offset is a single positive constant, *not* a per-edge sign. The normal already points the
-  opposite way for the reverse edge; negating it as well cancels out and restacks the labels.
+No optimistic updates in the canvas. `onConnect` and `onReconnect` send the op and wait for
+the push, because the server assigns the id — a locally invented one renders a duplicate that
+is immediately replaced.
 
-There is no optimistic edge on connect: the server assigns the id (`source->target`), so inventing
-a local one renders a duplicate that is immediately replaced.
+## Traps, each paid for with a real bug
+
+**File watching must watch the directory, not the file.** Atomic saves replace the file by
+rename, which swaps the inode; a file-level watch is bound to the old one and goes silent
+after the first write, including the server's own.
+
+**`node --test <dir>/` reports success on zero matches.** It silently passed a suite that
+found no test files at all. Always use the `dist/*.test.js` glob.
+
+**React Flow's controlled mode delivers selection through `onNodesChange`/`onEdgesChange`.**
+Without `onEdgesChange`, clicking an edge never marks it selected, so Delete has nothing to
+act on and `onEdgesDelete` never fires. Edges were silently unselectable for exactly this
+reason, while nodes worked only because `onNodesChange` had been added for dragging.
+
+**`deleteKeyCode` defaults to Backspace alone**, so the Delete key was inert.
+
+**`OnNodeDrag` is `(event, node, nodes)` — the third argument is every dragged node.**
+Consuming only the second means a multi-node drag persists just the node under the cursor and
+the rest silently revert on the next server push.
+
+**`pathOptions.curvature` cannot separate a reciprocal edge pair.** React Flow ignores
+curvature whenever the handles already face each other and uses `0.5 * distance` instead.
+Reciprocal labels are separated by offsetting each along the normal to its own source→target
+axis, in `DirectedEdge.tsx`. That offset is one positive constant, **not** a per-edge sign:
+the normal already reverses for the opposite edge, so negating it too cancels out.
+
+**Placement must use real node sizes.** Nodes size themselves to their label in the browser,
+but placement runs on the server with no DOM, so it estimates. A shared width constant made
+wide nodes overlap by 110px. The regression guard is the mixed short/long-label overlap test —
+a test using only short labels will not catch it.
+
+**Workspace scripts run with the package as cwd.** `npm run dev -w @crosspoint/server` created
+its graph in `packages/server/` until the root script started passing an absolute path.
+
+**Never write non-UTF8 bytes into source.** Two literal NUL bytes used as a separator in a
+template literal worked fine at runtime but made git classify the file as *binary* — diffs
+became `Bin 6794 -> 7788 bytes` and grep skipped the file entirely.
+
+**The canvas has no error surface.** A dropped interaction just does nothing. Three separate
+defects were invisible for exactly this reason. Verify canvas changes by driving a real
+browser and asserting against the HTTP API — not by reasoning about the code.
+
+## Designed and agreed, not yet all built
+
+Check the code before trusting this list; it records decisions, not status.
+
+- **Op log + `get_changes`** — append-only, server-tracked watermark so the agent knows where
+  it left off across a context wipe. Returns a flat chronological list across all diagrams,
+  each entry tagged with its diagram and whether it is structural or layout.
+- **Batched edits** — the user edits freely and nothing happens until they say go; the agent
+  then reads the accumulated diff. Never act on a change the moment it lands.
+- **`generate_graph`** — one op building a whole graph, laid out with dagre. Refuses a
+  non-empty diagram unless `replace: true`, so a sub-plan cannot vanish by accident.
+- **Named diagrams** — a directory, one active, with a visible switcher in the header.
+- **Subcanvases** — a node references another diagram by name in its `data`. A lens badge
+  opens it in a floating, *editable* panel anchored to that node. One panel at a time;
+  lensing deeper replaces its contents with an in-panel breadcrumb. Deleting the parent node
+  **orphans** the subcanvas rather than destroying it. A panel must refuse to open the diagram
+  that is already the active main canvas — that is circular.
+- **Code references** in node `data` (`file`, `symbol`, `lines`).
+- **Semantic layout ops** (`align`) the server resolves into geometry.
+- **A committed Playwright browser suite** run by `npm test`.
+
+## Parked decisions
+
+Agreed in principle, deliberately not acted on yet:
+
+- reverting `get_graph` to structure-only, so coordinates vanish from the agent's *reads* as
+  well as its writes
+- splitting `core` into `structure/` and `layout/` so layout code stops sitting in the middle
+  of the graph model
+
+## Known gaps
+
+Neither loses data; both were found by audit rather than by failure.
+
+- A sub-grid nudge sends a no-op `move_node` — the position the node already had, because
+  snapping absorbs it. The server applies unconditionally, bumping rev and rewriting the file.
+- Deleting a node sends `delete_edge` then `delete_node`, but the server's cascade would have
+  removed that edge anyway. It works only because the ordering happens to favour it; flipped,
+  those ops would 400.
