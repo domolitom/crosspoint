@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { applyOp, GraphError, normalize, structuralView } from './ops.js';
 import { NODE_HEIGHT, NODE_WIDTH, placeNode } from './placement.js';
 import { parse, serialize } from './serialize.js';
-import { emptyGraph, type Graph } from './types.js';
+import { emptyGraph, isLayoutOp, type Graph } from './types.js';
 
 const build = (): Graph => {
   let g = emptyGraph();
@@ -159,6 +159,58 @@ test('reconnecting rejects unknown edge and node ids', () => {
       }),
     GraphError,
   );
+});
+
+test('add_node_at drops the node exactly where asked, snapped to the grid', () => {
+  const g = applyOp(build(), {
+    op: 'add_node_at',
+    label: 'Queue',
+    position: { x: 342.7, y: 118.2 },
+  });
+  const queue = g.nodes.find((n) => n.id === 'queue')!;
+  assert.deepEqual(queue.position, { x: 345, y: 120 });
+  assert.equal(queue.data.label, 'Queue');
+});
+
+test('add_node_at derives an id from the label and bumps rev', () => {
+  const g = build();
+  const next = applyOp(g, {
+    op: 'add_node_at',
+    label: 'Message Broker',
+    position: { x: 0, y: 0 },
+  });
+  assert.ok(next.nodes.some((n) => n.id === 'message-broker'));
+  assert.equal(next.rev, g.rev + 1);
+});
+
+test('add_node_at disambiguates against an existing id', () => {
+  let g = applyOp(emptyGraph(), { op: 'add_node', label: 'Worker' });
+  g = applyOp(g, { op: 'add_node_at', label: 'Worker', position: { x: 300, y: 0 } });
+  assert.deepEqual(g.nodes.map((n) => n.id), ['worker', 'worker-2']);
+});
+
+test('add_node_at leaves every existing position untouched', () => {
+  let g = build();
+  g = applyOp(g, { op: 'move_node', id: 'auth-service', position: { x: 600, y: 450 } });
+  const before = g.nodes.map((n) => ({ id: n.id, ...n.position! }));
+
+  const next = applyOp(g, {
+    op: 'add_node_at',
+    label: 'Queue',
+    position: { x: 900, y: 900 },
+  });
+
+  assert.deepEqual(
+    next.nodes.filter((n) => n.id !== 'queue').map((n) => ({ id: n.id, ...n.position! })),
+    before,
+  );
+});
+
+// The invariant the whole MCP surface rests on.
+test('creating at a point is a layout op, not a structural one', () => {
+  assert.ok(isLayoutOp({ op: 'add_node_at', label: 'X', position: { x: 0, y: 0 } }));
+  assert.ok(isLayoutOp({ op: 'move_node', id: 'x', position: { x: 0, y: 0 } }));
+  assert.ok(!isLayoutOp({ op: 'add_node', label: 'X' }));
 });
 
 test('deleting a node cascades to its edges', () => {

@@ -148,6 +148,20 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       return { ...next, edges: graph.edges.filter((e) => e.id !== op.id) };
     }
 
+    case 'add_node_at': {
+      // Same id generation as add_node; only the placement differs. The position comes
+      // from a human dropping a box, so it is taken as given rather than seeded — but
+      // still snapped, so dropped and agent-added nodes share one lattice.
+      const taken = new Set(graph.nodes.map((n) => n.id));
+      const id = uniqueId(slugify(op.label), taken);
+      const node: GraphNode = {
+        id,
+        position: snapPosition(op.position),
+        data: { ...op.data, label: op.label },
+      };
+      return { ...next, nodes: [...graph.nodes, node] };
+    }
+
     case 'move_node': {
       requireNode(graph, op.id, 'id');
       return {

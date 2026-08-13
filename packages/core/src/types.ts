@@ -59,9 +59,21 @@ export type StructuralOp =
   | { op: 'delete_node'; id: string }
   | { op: 'delete_edge'; id: string };
 
-/** Layout ops carry coordinates. Issued by the canvas only — never exposed over MCP. */
-export type LayoutOp = { op: 'move_node'; id: string; position: Position };
+/**
+ * Layout ops carry coordinates. Issued by the canvas only — never exposed over MCP.
+ *
+ * The split is by *who may issue an op*, not by what it does. Creating a node at a
+ * dropped point belongs here rather than on `add_node`, because a human dropping a box
+ * has a position in mind and an agent adding one does not. Giving the structural
+ * `add_node` a position field would let an agent express a coordinate, which is exactly
+ * the guarantee this file exists to keep.
+ */
+export type LayoutOp =
+  | { op: 'move_node'; id: string; position: Position }
+  | { op: 'add_node_at'; label: string; position: Position; data?: Record<string, unknown> };
 
 export type GraphOp = StructuralOp | LayoutOp;
 
-export const isLayoutOp = (op: GraphOp): op is LayoutOp => op.op === 'move_node';
+const LAYOUT_OPS = new Set(['move_node', 'add_node_at']);
+
+export const isLayoutOp = (op: GraphOp): op is LayoutOp => LAYOUT_OPS.has(op.op);
