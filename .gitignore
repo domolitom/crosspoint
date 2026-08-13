@@ -3,3 +3,6 @@ dist/
 *.tmp
 *.log
 .DS_Store
+
+# The working diagram — a live document, not repo content.
+graph.json
