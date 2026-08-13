@@ -1,0 +1,88 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e2e5ea;
+  background: #fff;
+  font-size: 14px;
+}
+
+.bar .spacer {
+  flex: 1;
+}
+
+.bar button {
+  padding: 5px 12px;
+  border: 1px solid #cbd2dc;
+  border-radius: 6px;
+  background: #f7f8fa;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.bar button:hover {
+  background: #eef0f4;
+}
+
+.rev {
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+
+.status {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.status.ok {
+  background: #e7f6ec;
+  color: #14713a;
+}
+
+.status.off {
+  background: #fdeceb;
+  color: #a3221c;
+}
+
+.error {
+  color: #a3221c;
+  font-size: 12px;
+}
+
+.edge-label {
+  position: absolute;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #fff;
+  color: #4b5563;
+  font-size: 11px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+
+.react-flow__node-default {
+  width: 180px;
+  border-radius: 8px;
+  border-color: #cbd2dc;
+  font-size: 13px;
+}
