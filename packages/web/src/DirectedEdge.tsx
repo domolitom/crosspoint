@@ -7,6 +7,8 @@ import {
 } from '@xyflow/react';
 
 export type DirectedEdgeData = {
+  /** Sends delete_edge. The edge disappears when the server pushes back, not on click. */
+  onDelete?: () => void;
   /**
    * Perpendicular shift for the label, in pixels.
    *
@@ -32,6 +34,7 @@ export function DirectedEdge({
   markerEnd,
   style,
   data,
+  selected,
 }: EdgeProps<Edge<DirectedEdgeData>>) {
   const [path, labelX, labelY] = getBezierPath({
     sourceX,
@@ -50,19 +53,35 @@ export function DirectedEdge({
   const x = labelX + (-dy / length) * offset;
   const y = labelY + (dx / length) * offset;
 
+  const stroke = selected ? { ...style, stroke: '#2563eb', strokeWidth: 2.5 } : style;
+
   return (
     <>
-      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
-      {label && (
-        <EdgeLabelRenderer>
+      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={stroke} />
+      <EdgeLabelRenderer>
+        {label && (
           <div
-            className="edge-label"
+            className={selected ? 'edge-label selected' : 'edge-label'}
             style={{ transform: `translate(-50%, -50%) translate(${x}px, ${y}px)` }}
           >
             {label}
           </div>
-        </EdgeLabelRenderer>
-      )}
+        )}
+        {selected && data?.onDelete && (
+          <button
+            className="edge-delete"
+            title="Remove this edge"
+            // Sits just above the label so it never covers the text.
+            style={{ transform: `translate(-50%, -50%) translate(${x}px, ${y - 20}px)` }}
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onDelete!();
+            }}
+          >
+            ×
+          </button>
+        )}
+      </EdgeLabelRenderer>
     </>
   );
 }

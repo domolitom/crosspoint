@@ -80,6 +80,36 @@ body,
   pointer-events: none;
 }
 
+.edge-label.selected {
+  color: #1d4ed8;
+  box-shadow: 0 0 0 1px #bfd3fb;
+}
+
+/* The label is click-through; this button must not be. */
+.edge-delete {
+  position: absolute;
+  pointer-events: all;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #bfd3fb;
+  border-radius: 50%;
+  background: #fff;
+  color: #1d4ed8;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.edge-delete:hover {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
 .react-flow__node-default {
   width: 180px;
   border-radius: 8px;

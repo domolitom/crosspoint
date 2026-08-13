@@ -1,4 +1,5 @@
 import {
+  applyEdgeChanges,
   applyNodeChanges,
   Background,
   Controls,
@@ -7,6 +8,7 @@ import {
   ReactFlow,
   type Connection,
   type Edge,
+  type EdgeChange,
   type Node,
   type NodeChange,
 } from '@xyflow/react';
@@ -56,8 +58,9 @@ export default function App() {
     // label belongs to.
     const pairs = new Set(graph.edges.map((e) => `${e.source}|${e.target}`));
 
-    setEdges(
-      graph.edges.map((edge) => {
+    setEdges((prev) => {
+      const previous = new Map(prev.map((e) => [e.id, e]));
+      return graph.edges.map((edge) => {
         const reciprocal = pairs.has(`${edge.target}|${edge.source}`);
         return {
           id: edge.id,
@@ -65,6 +68,9 @@ export default function App() {
           source: edge.source,
           target: edge.target,
           label: edge.label,
+          // Carried over explicitly: any push rebuilds this list, and dropping `selected`
+          // would silently deselect the edge the user just clicked.
+          selected: previous.get(edge.id)?.selected,
           // The model has always been directed — source and target are not interchangeable.
           // The arrowhead just makes the canvas say what the data already says.
           markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: EDGE_COLOR },
@@ -72,11 +78,23 @@ export default function App() {
           // One constant, not a per-edge sign: the normal is computed from the
           // source→target axis, which already points the opposite way for the reverse
           // edge. Flipping the sign as well would cancel that out and stack them again.
-          data: { labelOffset: reciprocal ? 22 : 0 },
+          data: {
+            labelOffset: reciprocal ? 22 : 0,
+            // Select-then-Delete is invisible unless you already know about it, so a
+            // selected edge also offers a click target.
+            onDelete: () => sendOp({ op: 'delete_edge', id: edge.id }),
+          },
         };
-      }),
-    );
-  }, [graph]);
+      });
+    });
+  }, [graph, sendOp]);
+
+  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+    // Selection changes arrive here. Without this, clicking an edge never marks it
+    // selected, so Delete has nothing to act on and onEdgesDelete never fires.
+    // Removals are applied locally too, but the server push is what makes them real.
+    setEdges((es) => applyEdgeChanges(changes, es));
+  }, []);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     // Applied locally so dragging stays at 60fps. Only drag-stop is persisted —
@@ -174,12 +192,16 @@ export default function App() {
         edges={edges}
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onConnect={onConnect}
         onReconnect={onReconnect}
         // Default is 10px, which makes the endpoint fiddly to grab on a curved edge.
         reconnectRadius={20}
+        // Defaults to Backspace alone, so Delete — what most full keyboards offer —
+        // silently did nothing.
+        deleteKeyCode={['Backspace', 'Delete']}
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
         onNodeDoubleClick={onNodeDoubleClick}
