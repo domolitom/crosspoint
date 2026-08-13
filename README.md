@@ -44,7 +44,32 @@ node-graph UI libraries like React Flow already use internally. Then:
 - **Sync**: the canvas subscribes to changes (file-watch or a lightweight live-update channel)
   so an edit from either side shows up for the other without a manual reload.
 
+## Running it
+
+```bash
+npm install
+npm run build
+npm run dev
+```
+
+Then open http://localhost:5173. The canvas reads and writes `graph.json` in the repo root
+via the server on :4000.
+
+To let an agent edit the same graph, point it at the MCP server — `.mcp.json` in this repo
+already configures it for Claude Code, and needs `npm run build` plus a running server.
+The tools are `get_graph`, `add_node`, `add_edge`, `update_node`, `update_edge`,
+`delete_node`, `delete_edge`.
+
+There is deliberately no tool for moving a node. Coordinates are the human's payload —
+meaningless to an agent as input, precious as stored data — so the agent API cannot express
+one, and therefore cannot overwrite one. New nodes are placed by the server clear of what
+already exists; `add_node` takes a `near: <nodeId>` hint rather than a position.
+
 ## Status
 
-Early design notes — nothing built yet. This README is the starting point for the next
-session.
+Working prototype. Graph model, state-owning server with live sync, React Flow canvas, and
+MCP server are all in place and covered by tests (`npm test`) — including an end-to-end test
+that drives a real server with a websocket client and agent-style HTTP calls.
+
+Not yet done: multi-diagram support, undo, node types beyond the default box, and auth of
+any kind (the server binds locally and trusts its callers).
