@@ -117,14 +117,23 @@ function Canvas() {
     setNodes((ns) => applyNodeChanges(changes, ns));
   }, []);
 
-  const onNodeDragStart = useCallback((_: unknown, node: Node) => {
-    dragging.current.add(node.id);
+  // React Flow passes every dragged node as the third argument. Reading only the second
+  // moved the whole selection on screen but persisted just the node under the cursor, so
+  // the rest snapped back on the next server push — and only that one node was guarded
+  // against an incoming edit mid-drag. `nodes` is empty for some single-node drags, hence
+  // the fallback.
+  const onNodeDragStart = useCallback((_: unknown, node: Node, nodes: Node[]) => {
+    for (const dragged of nodes?.length ? nodes : [node]) dragging.current.add(dragged.id);
   }, []);
 
   const onNodeDragStop = useCallback(
-    (_: unknown, node: Node) => {
-      dragging.current.delete(node.id);
-      sendOp({ op: 'move_node', id: node.id, position: node.position });
+    (_: unknown, node: Node, nodes: Node[]) => {
+      // One narrow op per node rather than a batch op, consistent with everything else
+      // here. N revs for one gesture is fine: persistence is debounced to a single write.
+      for (const dragged of nodes?.length ? nodes : [node]) {
+        dragging.current.delete(dragged.id);
+        sendOp({ op: 'move_node', id: dragged.id, position: dragged.position });
+      }
     },
     [sendOp],
   );
