@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { applyOp, GraphError, normalize, structuralView } from './ops.js';
-import { NODE_HEIGHT, NODE_WIDTH, placeNode } from './placement.js';
+import {
+  estimateNodeHeight,
+  estimateNodeWidth,
+  MAX_NODE_WIDTH,
+  MIN_NODE_WIDTH,
+  NODE_HEIGHT,
+  placeNode,
+} from './placement.js';
 import { parse, serialize } from './serialize.js';
 import { emptyGraph, isLayoutOp, type Graph } from './types.js';
 
@@ -25,21 +32,88 @@ test('duplicate labels get distinct ids', () => {
   assert.deepEqual(g.nodes.map((n) => n.id), ['worker', 'worker-2']);
 });
 
+/** Do any two nodes' estimated rectangles intersect? */
+function findOverlap(g: Graph): string | null {
+  const boxes = g.nodes.map((n) => {
+    const label = String(n.data.label);
+    return {
+      id: n.id,
+      x: n.position!.x,
+      y: n.position!.y,
+      w: estimateNodeWidth(label),
+      h: estimateNodeHeight(label),
+    };
+  });
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i];
+      const b = boxes[j];
+      if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) {
+        return `${a.id} overlaps ${b.id}`;
+      }
+    }
+  }
+  return null;
+}
+
 test('every added node is placed, and placements never overlap', () => {
   let g = emptyGraph();
   for (let i = 0; i < 25; i++) g = applyOp(g, { op: 'add_node', label: `n${i}` });
 
-  const positions = g.nodes.map((n) => n.position!);
-  assert.equal(positions.filter(Boolean).length, 25);
+  assert.equal(g.nodes.filter((n) => n.position).length, 25);
+  assert.equal(findOverlap(g), null);
+});
 
-  for (let i = 0; i < positions.length; i++) {
-    for (let j = i + 1; j < positions.length; j++) {
-      const overlapping =
-        Math.abs(positions[i].x - positions[j].x) < NODE_WIDTH &&
-        Math.abs(positions[i].y - positions[j].y) < NODE_HEIGHT;
-      assert.ok(!overlapping, `nodes ${i} and ${j} overlap`);
-    }
-  }
+// The regression guard for auto-sizing: uniform short labels would hide a placement
+// routine that still assumed one fixed width for every box.
+test('placements never overlap when label widths vary wildly', () => {
+  const labels = [
+    'A',
+    'Authentication and authorization gateway for the public API surface',
+    'DB',
+    'Message broker',
+    'x',
+    'A really quite long node label that will certainly wrap onto several lines',
+    'Cache',
+    'Observability, metrics, tracing and structured log aggregation pipeline',
+    'Q',
+    'Worker',
+  ];
+  let g = emptyGraph();
+  for (const label of labels) g = applyOp(g, { op: 'add_node', label });
+
+  assert.equal(g.nodes.length, labels.length);
+  assert.equal(findOverlap(g), null);
+});
+
+test('a wide neighbour is cleared rather than overlapped', () => {
+  let g = applyOp(emptyGraph(), {
+    op: 'add_node',
+    label: 'An extremely long label that pushes this node to the maximum width',
+  });
+  const wide = g.nodes[0];
+  g = applyOp(g, { op: 'add_node', label: 'B' });
+
+  const next = g.nodes[1].position!;
+  assert.ok(
+    next.x >= wide.position!.x + estimateNodeWidth(String(wide.data.label)) ||
+      next.y >= wide.position!.y + estimateNodeHeight(String(wide.data.label)),
+    'the second node must clear the wide one on at least one axis',
+  );
+});
+
+test('estimated width respects the min and max clamps', () => {
+  assert.equal(estimateNodeWidth(''), MIN_NODE_WIDTH);
+  assert.equal(estimateNodeWidth('ok'), MIN_NODE_WIDTH, 'short labels hit the floor');
+  assert.equal(estimateNodeWidth('x'.repeat(500)), MAX_NODE_WIDTH, 'long labels hit the cap');
+
+  const medium = estimateNodeWidth('A moderately long node label');
+  assert.ok(medium > MIN_NODE_WIDTH && medium < MAX_NODE_WIDTH, `got ${medium}`);
+});
+
+test('estimated height grows only once a label wraps', () => {
+  assert.equal(estimateNodeHeight('Short'), NODE_HEIGHT);
+  assert.ok(estimateNodeHeight('y'.repeat(300)) > NODE_HEIGHT, 'wrapped labels are taller');
 });
 
 test('placement honours the `near` hint by going below the anchor', () => {

@@ -37,7 +37,8 @@ export function normalize(graph: Graph): Graph {
       data: { ...node.data, label: node.data?.label ?? node.id },
       // Hand-written positions are passed through verbatim — loading a file must not
       // rewrite the human's coordinates. Snapping applies to drags and seeds only.
-      position: node.position ?? placeNode(nodes),
+      position:
+        node.position ?? placeNode(nodes, { label: String(node.data?.label ?? node.id) }),
     });
   }
 
@@ -68,7 +69,7 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       const id = uniqueId(slugify(op.label), taken);
       const node: GraphNode = {
         id,
-        position: placeNode(graph.nodes, { near: op.near }),
+        position: placeNode(graph.nodes, { near: op.near, label: op.label }),
         data: { ...op.data, label: op.label },
       };
       return { ...next, nodes: [...graph.nodes, node] };
