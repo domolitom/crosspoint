@@ -1,0 +1,164 @@
+import { placeNode, snapPosition } from './placement.js';
+import type { Graph, GraphEdge, GraphNode, GraphOp, PlacedNode } from './types.js';
+
+export class GraphError extends Error {}
+
+/** Slugify a label into a readable, stable id — ids an agent can reason about. */
+function slugify(label: string): string {
+  const slug = label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+  return slug || 'node';
+}
+
+function uniqueId(base: string, taken: Set<string>): string {
+  if (!taken.has(base)) return base;
+  for (let i = 2; ; i++) {
+    const candidate = `${base}-${i}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+/**
+ * Bring a graph into the invariant the server maintains: every node placed, no dangling
+ * edges, no duplicate ids. Applied on load so a hand-edited file is always usable.
+ */
+export function normalize(graph: Graph): Graph {
+  const seen = new Set<string>();
+  const nodes: PlacedNode[] = [];
+
+  for (const node of graph.nodes) {
+    if (seen.has(node.id)) continue;
+    seen.add(node.id);
+    nodes.push({
+      ...node,
+      data: { ...node.data, label: node.data?.label ?? node.id },
+      // Hand-written positions are passed through verbatim — loading a file must not
+      // rewrite the human's coordinates. Snapping applies to drags and seeds only.
+      position: node.position ?? placeNode(nodes),
+    });
+  }
+
+  const edgeIds = new Set<string>();
+  const edges = graph.edges.filter((edge) => {
+    if (edgeIds.has(edge.id)) return false;
+    if (!seen.has(edge.source) || !seen.has(edge.target)) return false;
+    edgeIds.add(edge.id);
+    return true;
+  });
+
+  return { rev: graph.rev ?? 0, nodes, edges };
+}
+
+/**
+ * Apply one mutation, returning a new graph with an incremented rev.
+ *
+ * Every op is narrow by construction: it names the one node or edge it touches and
+ * leaves the rest of the document alone. That is what lets a human drag and an agent
+ * restructure at the same time without either write clobbering the other.
+ */
+export function applyOp(graph: Graph, op: GraphOp): Graph {
+  const next = { ...graph, rev: graph.rev + 1 };
+
+  switch (op.op) {
+    case 'add_node': {
+      const taken = new Set(graph.nodes.map((n) => n.id));
+      const id = uniqueId(slugify(op.label), taken);
+      const node: GraphNode = {
+        id,
+        position: placeNode(graph.nodes, { near: op.near }),
+        data: { ...op.data, label: op.label },
+      };
+      return { ...next, nodes: [...graph.nodes, node] };
+    }
+
+    case 'add_edge': {
+      requireNode(graph, op.source, 'source');
+      requireNode(graph, op.target, 'target');
+      const taken = new Set(graph.edges.map((e) => e.id));
+      const id = uniqueId(`${op.source}->${op.target}`, taken);
+      const edge: GraphEdge = { id, source: op.source, target: op.target };
+      if (op.label) edge.label = op.label;
+      return { ...next, edges: [...graph.edges, edge] };
+    }
+
+    case 'update_node': {
+      requireNode(graph, op.id, 'id');
+      return {
+        ...next,
+        nodes: graph.nodes.map((n) =>
+          n.id === op.id
+            ? { ...n, data: { ...n.data, ...op.data, label: op.label ?? n.data.label } }
+            : n,
+        ),
+      };
+    }
+
+    case 'update_edge': {
+      if (!graph.edges.some((e) => e.id === op.id)) {
+        throw new GraphError(`No edge with id "${op.id}"`);
+      }
+      return {
+        ...next,
+        edges: graph.edges.map((e) =>
+          e.id === op.id ? { ...e, ...(op.label === undefined ? {} : { label: op.label }) } : e,
+        ),
+      };
+    }
+
+    case 'delete_node': {
+      requireNode(graph, op.id, 'id');
+      return {
+        ...next,
+        nodes: graph.nodes.filter((n) => n.id !== op.id),
+        // Cascade: an edge to a deleted node would violate the no-dangling invariant.
+        edges: graph.edges.filter((e) => e.source !== op.id && e.target !== op.id),
+      };
+    }
+
+    case 'delete_edge': {
+      if (!graph.edges.some((e) => e.id === op.id)) {
+        throw new GraphError(`No edge with id "${op.id}"`);
+      }
+      return { ...next, edges: graph.edges.filter((e) => e.id !== op.id) };
+    }
+
+    case 'move_node': {
+      requireNode(graph, op.id, 'id');
+      return {
+        ...next,
+        nodes: graph.nodes.map((n) =>
+          n.id === op.id ? { ...n, position: snapPosition(op.position) } : n,
+        ),
+      };
+    }
+  }
+}
+
+function requireNode(graph: Graph, id: string, field: string): void {
+  if (!graph.nodes.some((n) => n.id === id)) {
+    throw new GraphError(`No node with id "${id}" (${field})`);
+  }
+}
+
+/**
+ * The agent-facing view: structure and labels, no coordinates.
+ *
+ * Positions are data the agent must preserve, not data it consumes — pixel values carry
+ * no meaning for reasoning about a diagram and only cost tokens. Callers that genuinely
+ * need geometry ask for it explicitly.
+ */
+export function structuralView(graph: Graph) {
+  return {
+    rev: graph.rev,
+    nodes: graph.nodes.map((n) => ({ id: n.id, ...n.data })),
+    edges: graph.edges.map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      ...(e.label ? { label: e.label } : {}),
+    })),
+  };
+}
