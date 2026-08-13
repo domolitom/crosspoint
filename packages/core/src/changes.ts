@@ -1,0 +1,84 @@
+import { isLayoutOp, type GraphOp } from './types.js';
+
+/**
+ * The change feed: what happened to a diagram, in the order it happened.
+ *
+ * This exists because the graph alone answers "what does it look like now" but not
+ * "what did you just change", and the latter is the actual message. A human rearranges
+ * a diagram and then says "implement that" — the diff *is* the instruction, and an op
+ * log records the instruction exactly rather than inferring it from two snapshots.
+ * Recording the op means a delete-then-add is distinguishable from a rename, which a
+ * structural diff of before/after states can never tell apart.
+ */
+
+/**
+ * A change to the file that did not come through an op — someone edited the JSON by
+ * hand. There is no operation to record, but staying silent would be worse: the rev
+ * jumps with no explanation and a reader has no way to know its picture is stale.
+ */
+export interface ExternalEdit {
+  op: 'external_edit';
+}
+
+export type LoggedOp = GraphOp | ExternalEdit;
+
+/**
+ * `layout` is tagged separately so a consumer that only cares about structure can drop
+ * those entries with a single filter. Nudging a box two pixels is rarely part of the
+ * message; adding a node always is.
+ */
+export type ChangeKind = 'structural' | 'layout' | 'external';
+
+export interface LogEntry {
+  /** The rev this op produced. Entries are strictly ascending. */
+  rev: number;
+  ts: string;
+  kind: ChangeKind;
+  /** Which diagram changed. One today; named diagrams make this load-bearing. */
+  diagram: string;
+  op: LoggedOp;
+}
+
+export const kindOf = (op: LoggedOp): ChangeKind =>
+  op.op === 'external_edit' ? 'external' : isLayoutOp(op) ? 'layout' : 'structural';
+
+const quote = (s: string) => `"${s}"`;
+
+/** One readable line per op. This is what actually gets read, so it earns its keep. */
+export function describeOp(op: LoggedOp): string {
+  switch (op.op) {
+    case 'add_node':
+      return `+ node ${quote(op.label)}${op.near ? ` near ${op.near}` : ''}`;
+    case 'add_node_at':
+      return `+ node ${quote(op.label)} (dropped on canvas)`;
+    case 'add_edge':
+      return `+ edge ${op.source} → ${op.target}${op.label ? ` ${quote(op.label)}` : ''}`;
+    case 'reconnect_edge':
+      return `~ edge ${op.id} now ${op.source} → ${op.target}`;
+    case 'update_node':
+      return op.label ? `~ node ${op.id} relabelled ${quote(op.label)}` : `~ node ${op.id} data`;
+    case 'update_edge':
+      return `~ edge ${op.id} labelled ${quote(op.label ?? '')}`;
+    case 'delete_node':
+      return `− node ${op.id}`;
+    case 'delete_edge':
+      return `− edge ${op.id}`;
+    case 'move_node':
+      return `moved ${op.id}`;
+    case 'external_edit':
+      return 'graph file edited outside the server';
+  }
+}
+
+/**
+ * Render entries as a flat chronological list, each tagged with its diagram.
+ *
+ * Deliberately not grouped by diagram: the order things happened in is often the intent
+ * ("I added the retry step, then went in and detailed it"), and grouping destroys it.
+ */
+export function summarise(entries: LogEntry[]): string {
+  if (entries.length === 0) return 'No changes.';
+  return entries
+    .map((e) => `${String(e.rev).padStart(4)}  ${e.diagram}  ${describeOp(e.op)}`)
+    .join('\n');
+}
