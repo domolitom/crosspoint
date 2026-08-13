@@ -165,6 +165,31 @@ test('a reconnect reaches the canvas live and lands on disk', async () => {
   );
 });
 
+test('a node dropped on the canvas lands at the drop point', async () => {
+  const before = received.length;
+  socket.send(
+    JSON.stringify({
+      type: 'op',
+      op: { op: 'add_node_at', label: 'Dropped', position: { x: 900, y: 615 } },
+    }),
+  );
+
+  const pushed = await until('canvas to see the dropped node', () =>
+    received.slice(before).find((g) => g.nodes.some((n: any) => n.id === 'dropped')),
+  );
+  assert.ok(pushed);
+
+  const graph = await until('drop to reach disk', async () => {
+    const g = await readGraphFile();
+    return g.nodes.find((n: any) => n.id === 'dropped') ? g : null;
+  });
+  assert.deepEqual(
+    graph.nodes.find((n: any) => n.id === 'dropped').position,
+    { x: 900, y: 615 },
+    'the dropped position is kept, not reseeded by placement',
+  );
+});
+
 test('the agent view omits coordinates entirely', async () => {
   const { body } = await api('/api/graph/structural');
   assert.ok(!JSON.stringify(body).includes('position'));
