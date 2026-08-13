@@ -94,14 +94,20 @@ test('a rejected op leaves no trace in the log', async () => {
   assert.equal(body.entries.length, before, 'the log records what happened, not what was tried');
 });
 
-test('ops are tagged so layout noise can be filtered out', async () => {
+test('ops are tagged, and the tag is what the default filter acts on', async () => {
   await op({ op: 'move_node', id: 'fetch', position: { x: 300, y: 150 } });
-  const { body } = await api('/api/changes?since=0');
 
+  const { body } = await api('/api/changes?since=0&include_layout=true');
   const move = body.entries.find((e: any) => e.op.op === 'move_node');
   const add = body.entries.find((e: any) => e.op.op === 'add_node');
   assert.equal(move.kind, 'layout');
   assert.equal(add.kind, 'structural');
+
+  const { body: plain } = await api('/api/changes?since=0');
+  assert.ok(
+    !plain.entries.some((e: any) => e.op.op === 'move_node'),
+    'and without the flag that same move is gone',
+  );
 });
 
 test('the summary reads as prose, not as raw ops', async () => {
@@ -194,4 +200,43 @@ test('the watermark also survives a restart', async () => {
     body.entries.every((e: any) => e.kind === 'external' || e.rev > 5),
     'a restart does not resurrect already-consumed history',
   );
+});
+
+test('repositioning is left out of the feed unless asked for', async () => {
+  await op({ op: 'add_node', label: 'Fetch' });
+  await op({ op: 'add_node', label: 'Cache' });
+  const base = (await api('/api/graph')).body.rev;
+
+  // What a human tidying up produces: one real change buried in moves.
+  await op({ op: 'move_node', id: 'fetch', position: { x: 300, y: 150 } });
+  await op({ op: 'add_edge', source: 'fetch', target: 'cache' });
+  await op({ op: 'move_node', id: 'cache', position: { x: 300, y: 300 } });
+  await op({ op: 'move_node', id: 'fetch', position: { x: 315, y: 150 } });
+
+  const { body: filtered } = await api(`/api/changes?since=${base}`);
+  assert.deepEqual(
+    filtered.entries.map((e: any) => e.op.op),
+    ['add_edge'],
+    'only the change that carried the message survives',
+  );
+
+  const { body: full } = await api(`/api/changes?since=${base}&include_layout=true`);
+  assert.equal(full.entries.length, 4, 'the moves are still on record when asked for');
+});
+
+// If the watermark stopped at filtered entries they would stay unseen forever, and
+// every later call would re-scan the same pile of moves.
+test('consuming advances past repositioning even though it is not returned', async () => {
+  await op({ op: 'move_node', id: 'fetch', position: { x: 0, y: 0 } });
+  await op({ op: 'move_node', id: 'cache', position: { x: 0, y: 150 } });
+
+  const drained = await api('/api/changes');
+  assert.ok(
+    !drained.body.entries.some((e: any) => e.kind === 'layout'),
+    'no layout entries in the response',
+  );
+
+  const { body: after } = await api('/api/changes');
+  assert.deepEqual(after.entries, [], 'the moves were consumed, not left pending');
+  assert.equal(after.watermark, after.rev, 'watermark caught up to the latest rev');
 });

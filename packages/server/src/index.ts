@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 
-import { structuralView, summarise, type GraphOp } from '@crosspoint/core';
+import { structuralView, summarise, withoutLayout, type GraphOp } from '@crosspoint/core';
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import { GraphStore, StaleRevError } from './store.js';
@@ -47,7 +47,12 @@ const server = createServer(async (req, res) => {
       // No `since` means "everything I have not seen", which consumes. An explicit
       // `since` is a repeatable query and deliberately leaves the watermark alone.
       const raw = url.searchParams.get('since');
-      const entries = raw === null ? store.consumeChanges() : store.changesSince(Number(raw));
+      const all = raw === null ? store.consumeChanges() : store.changesSince(Number(raw));
+      // Repositioning is dropped unless asked for. Note the watermark has already moved
+      // past those entries: they are filtered out of the *response*, not left unseen, or
+      // every subsequent call would re-scan the same pile of moves forever.
+      const entries =
+        url.searchParams.get('include_layout') === 'true' ? all : withoutLayout(all);
       return json(res, 200, {
         rev: store.current().rev,
         watermark: store.log.watermark,
