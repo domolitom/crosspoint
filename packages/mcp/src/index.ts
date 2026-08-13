@@ -64,6 +64,38 @@ server.registerTool(
 );
 
 server.registerTool(
+  'get_changes',
+  {
+    title: 'Get changes',
+    description:
+      'Read what the human changed in the diagram, in the order they changed it. This ' +
+      'is how an edit becomes a request: they rearrange the graph, then ask you to act ' +
+      'on it, and this tool tells you what "it" was.\n\n' +
+      'Call it with NO arguments to get everything since you last looked — the server ' +
+      'remembers where you got to, so this keeps working across a new session or after ' +
+      'your context is compacted. Doing so consumes those changes: the next no-argument ' +
+      'call returns only what is newer.\n\n' +
+      'Pass since_rev instead for a repeatable query that does not consume, which is ' +
+      'what you want when re-reading something you have already seen.\n\n' +
+      'Entries are tagged: `structural` for nodes and edges, `layout` for repositioning ' +
+      '(usually noise you can ignore), and `external` meaning the file was edited ' +
+      'outside the app, so re-read the graph rather than trusting your picture of it.',
+    inputSchema: {
+      since_rev: z
+        .number()
+        .int()
+        .optional()
+        .describe(
+          'Return changes after this rev without consuming them. Omit to get everything ' +
+            'unseen and advance your position.',
+        ),
+    },
+  },
+  async ({ since_rev }) =>
+    ok(await call(since_rev === undefined ? '/api/changes' : `/api/changes?since=${since_rev}`)),
+);
+
+server.registerTool(
   'add_node',
   {
     title: 'Add node',
