@@ -43,6 +43,34 @@ body,
   background: #eef0f4;
 }
 
+/* Deliberately shaped like a node, so what you drag looks like what you get. */
+.palette-node {
+  width: 84px;
+  padding: 6px 0;
+  border: 1px solid #cbd2dc;
+  border-radius: 8px;
+  background: #f7f8fa;
+  color: #374151;
+  font-size: 13px;
+  text-align: center;
+  cursor: grab;
+  user-select: none;
+}
+
+.palette-node:active {
+  cursor: grabbing;
+}
+
+.palette-node:hover {
+  border-color: #9aa4b2;
+  background: #eef0f4;
+}
+
+.palette-hint {
+  color: #9aa4b2;
+  font-size: 12px;
+}
+
 .rev {
   color: #6b7280;
   font-variant-numeric: tabular-nums;

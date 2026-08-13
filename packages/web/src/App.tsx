@@ -6,6 +6,8 @@ import {
   MarkerType,
   MiniMap,
   ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
   type Connection,
   type Edge,
   type EdgeChange,
@@ -22,8 +24,21 @@ const EDGE_COLOR = '#7b8494';
 // Defined once at module scope: a new object each render remounts every edge.
 const edgeTypes = { directed: DirectedEdge };
 
+/** Identifies our own palette drags, so unrelated drops onto the canvas are ignored. */
+const DRAG_TYPE = 'application/crosspoint-node';
+
 export default function App() {
+  // screenToFlowPosition comes from useReactFlow, which needs a provider above it.
+  return (
+    <ReactFlowProvider>
+      <Canvas />
+    </ReactFlowProvider>
+  );
+}
+
+function Canvas() {
   const { graph, connected, error, sendOp } = useGraph();
+  const { screenToFlowPosition } = useReactFlow();
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   /** Nodes the user is mid-drag on; server state must not yank them out from under. */
@@ -168,17 +183,49 @@ export default function App() {
     [sendOp],
   );
 
-  const addNode = useCallback(() => {
-    const label = window.prompt('New node label');
-    // No position sent: the server seeds it. The canvas asks for a node, not a place.
-    if (label?.trim()) sendOp({ op: 'add_node', label: label.trim() });
-  }, [sendOp]);
+  const onPaletteDragStart = useCallback((event: React.DragEvent) => {
+    event.dataTransfer.setData(DRAG_TYPE, 'node');
+    event.dataTransfer.effectAllowed = 'copy';
+  }, []);
+
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    if (!event.dataTransfer.types.includes(DRAG_TYPE)) return;
+    // Without preventDefault the browser refuses the drop and no drop event fires.
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      if (!event.dataTransfer.types.includes(DRAG_TYPE)) return;
+      event.preventDefault();
+
+      const label = window.prompt('New node label');
+      // Cancelled prompt means no node — better than littering the canvas with
+      // unnamed boxes someone has to go back and rename.
+      if (!label?.trim()) return;
+
+      // Screen pixels are meaningless to the graph: convert through the current pan
+      // and zoom so the node lands where it was dropped, not where the viewport is.
+      const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      sendOp({ op: 'add_node_at', label: label.trim(), position });
+    },
+    [screenToFlowPosition, sendOp],
+  );
 
   return (
     <div className="app">
       <header className="bar">
         <strong>Crosspoint</strong>
-        <button onClick={addNode}>Add node</button>
+        <div
+          className="palette-node"
+          draggable
+          onDragStart={onPaletteDragStart}
+          title="Drag onto the canvas to add a node"
+        >
+          Node
+        </div>
+        <span className="palette-hint">drag onto the canvas</span>
         <span className="spacer" />
         {error && <span className="error">{error}</span>}
         <span className="rev">rev {graph?.rev ?? '—'}</span>
@@ -205,6 +252,8 @@ export default function App() {
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
         onNodeDoubleClick={onNodeDoubleClick}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
         snapToGrid
         snapGrid={[15, 15]}
         fitView
