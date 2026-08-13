@@ -10,7 +10,10 @@ import {
   serialize,
   type Graph,
   type GraphOp,
+  type LogEntry,
 } from '@crosspoint/core';
+
+import { OpLog } from './oplog.js';
 
 export interface Change {
   graph: Graph;
@@ -42,7 +45,7 @@ export class GraphStore {
   private lastWritten = '';
   private persistTimer?: NodeJS.Timeout;
 
-  private constructor(readonly path: string, graph: Graph) {
+  private constructor(readonly path: string, graph: Graph, readonly log: OpLog) {
     this.graph = graph;
   }
 
@@ -58,7 +61,7 @@ export class GraphStore {
       await mkdir(dirname(full), { recursive: true });
     }
 
-    const store = new GraphStore(full, graph);
+    const store = new GraphStore(full, graph, await OpLog.open(full));
     await store.persistNow();
     store.startWatching();
     return store;
@@ -82,16 +85,30 @@ export class GraphStore {
     if (options.baseRev !== undefined && options.baseRev !== this.graph.rev) {
       throw new StaleRevError(options.baseRev, this.graph.rev);
     }
+    // applyOp throws on an invalid op, so nothing below runs for a rejected one — the
+    // log only ever contains changes that actually happened.
     this.graph = applyOp(this.graph, op);
+    this.log.record(this.graph.rev, op);
     this.emit(options.origin);
     this.schedulePersist();
     return this.graph;
+  }
+
+  /** Everything after `rev`, leaving the watermark alone. Repeatable. */
+  changesSince(rev: number): LogEntry[] {
+    return this.log.since(rev);
+  }
+
+  /** Everything unseen, advancing the watermark past it. */
+  consumeChanges(): LogEntry[] {
+    return this.log.consume();
   }
 
   async close(): Promise<void> {
     this.watcher?.close();
     if (this.persistTimer) clearTimeout(this.persistTimer);
     await this.persistNow();
+    await this.log.close();
   }
 
   private emit(origin?: string): void {
@@ -152,6 +169,10 @@ export class GraphStore {
       // The file is behind the in-memory rev by definition once it has been edited by
       // hand; take its content but keep a monotonic rev so clients never move backwards.
       this.graph = { ...incoming, rev: Math.max(incoming.rev, this.graph.rev + 1) };
+      // A hand edit produces no op, but silence would be worse than an imprecise entry:
+      // the rev jumps and a reader has no way to know its picture went stale. Record
+      // that something happened outside the op stream and let the reader re-read.
+      this.log.record(this.graph.rev, { op: 'external_edit' });
       this.emit();
     } catch {
       // Mid-edit invalid JSON is expected; the next write will be well-formed.

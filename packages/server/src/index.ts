@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 
-import { structuralView, type GraphOp } from '@crosspoint/core';
+import { structuralView, summarise, type GraphOp } from '@crosspoint/core';
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import { GraphStore, StaleRevError } from './store.js';
@@ -41,6 +41,19 @@ const server = createServer(async (req, res) => {
       // Agent view: structure and labels only. Coordinates are data an agent must
       // preserve, not data it consumes, so they are omitted unless asked for.
       return json(res, 200, structuralView(store.current()));
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/changes') {
+      // No `since` means "everything I have not seen", which consumes. An explicit
+      // `since` is a repeatable query and deliberately leaves the watermark alone.
+      const raw = url.searchParams.get('since');
+      const entries = raw === null ? store.consumeChanges() : store.changesSince(Number(raw));
+      return json(res, 200, {
+        rev: store.current().rev,
+        watermark: store.log.watermark,
+        summary: summarise(entries),
+        entries,
+      });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/op') {

@@ -4,5 +4,7 @@ dist/
 *.log
 .DS_Store
 
-# The working diagram — a live document, not repo content.
+# The working diagram and its history — live documents, not repo content.
 graph.json
+*.ops.jsonl
+*.state.json
