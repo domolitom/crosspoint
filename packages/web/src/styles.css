@@ -138,9 +138,21 @@ body,
   color: #fff;
 }
 
+/*
+ * Size to the label rather than pinning one width. The clamp is mirrored by
+ * estimateNodeWidth in @crosspoint/core, which is how the server keeps auto-placed
+ * nodes from landing on wide ones — if you change these bounds, change those too.
+ */
 .react-flow__node-default {
-  width: 180px;
+  width: fit-content;
+  min-width: 120px;
+  max-width: 320px;
+  padding: 10px 12px;
   border-radius: 8px;
   border-color: #cbd2dc;
   font-size: 13px;
+  line-height: 18px;
+  /* Long words must break rather than punch through the max-width. */
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
