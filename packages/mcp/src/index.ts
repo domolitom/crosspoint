@@ -77,9 +77,10 @@ server.registerTool(
       'call returns only what is newer.\n\n' +
       'Pass since_rev instead for a repeatable query that does not consume, which is ' +
       'what you want when re-reading something you have already seen.\n\n' +
-      'Entries are tagged: `structural` for nodes and edges, `layout` for repositioning ' +
-      '(usually noise you can ignore), and `external` meaning the file was edited ' +
-      'outside the app, so re-read the graph rather than trusting your picture of it.',
+      'Repositioning is left out by default — where a box sits is rarely the message, ' +
+      'and on a real session it was 18 of 20 entries, burying the two that mattered. ' +
+      'What you get is tagged `structural` (nodes and edges) or `external` (the file was ' +
+      'edited outside the app, so re-read the graph rather than trusting your picture).',
     inputSchema: {
       since_rev: z
         .number()
@@ -89,10 +90,22 @@ server.registerTool(
           'Return changes after this rev without consuming them. Omit to get everything ' +
             'unseen and advance your position.',
         ),
+      include_layout: z
+        .boolean()
+        .optional()
+        .describe(
+          'Include repositioning. Rarely useful — ask only when the question is ' +
+            'genuinely about where things sit, such as which nodes were grouped together.',
+        ),
     },
   },
-  async ({ since_rev }) =>
-    ok(await call(since_rev === undefined ? '/api/changes' : `/api/changes?since=${since_rev}`)),
+  async ({ since_rev, include_layout }) => {
+    const params = new URLSearchParams();
+    if (since_rev !== undefined) params.set('since', String(since_rev));
+    if (include_layout) params.set('include_layout', 'true');
+    const query = params.toString();
+    return ok(await call(`/api/changes${query ? `?${query}` : ''}`));
+  },
 );
 
 server.registerTool(
