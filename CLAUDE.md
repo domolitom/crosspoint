@@ -71,6 +71,22 @@ stops the agent thrashing the user's arrangement mid-thought. Do not let it bloc
 useful agent capability; the escape hatch is semantic intent ops (`align`) that the server
 resolves into geometry, never raw pixels.
 
+### Colour is the exception, and it is deliberate
+
+Node colour reaches the agent's *write* surface — `add_node` and `update_node` both take it.
+That is not a leak. The invariant protects the human's **layout**, and recolouring destroys
+no spatial work, so the reasoning that bars coordinates does not apply. It is on the surface
+because a coloured node is usually a statement — amber for "needs attention", red for
+"broken" — and a channel where only one side can make that statement is worse.
+
+Two rules keep it honest. It is stored **by name**, never as hex, because the point of a
+stored value is that a reader can rely on it and `#a3221c` says nothing. And it is a
+validated field rather than a free entry in the open `data` bag, so an invented name is
+refused at the door. `"none"` deletes the key instead of storing a sentinel.
+
+Colour is tagged `structural`, so it survives `withoutLayout`. Filtering it as noise would
+throw away the message.
+
 ### Placement seeds, it does not re-solve
 
 `placeNode` only ever positions the *new* node and never moves existing ones. Running a global
@@ -101,6 +117,15 @@ after the first write, including the server's own.
 
 **`node --test <dir>/` reports success on zero matches.** It silently passed a suite that
 found no test files at all. Always use the `dist/*.test.js` glob.
+
+**The canvas node rebuild must spread the whole `data` bag.** It once picked out `label`
+alone, so any other key — colour, and code references later — was silently dropped on the
+next server push. The value reached the browser and then vanished on the following frame.
+
+**`.bar button` beats a bare `.swatch` on specificity** — (0,1,1) against (0,1,0). Every
+colour swatch rendered as an identical grey pill while every colour *assertion* still
+passed, because the assertions measured the nodes rather than the buttons. Found by looking
+at a screenshot. Toolbar rules need scoping under `.bar`.
 
 **React Flow's controlled mode delivers selection through `onNodesChange`/`onEdgesChange`.**
 Without `onEdgesChange`, clicking an edge never marks it selected, so Delete has nothing to
