@@ -39,6 +39,17 @@ export interface NodeData {
   label: string;
   /** Absent means uncoloured. An uncoloured node carries no colour key at all. */
   color?: NodeColor;
+  /**
+   * Name of another diagram holding this node's detail — a plan step's own sub-plan.
+   *
+   * A reference rather than nested content, so a subcanvas is an ordinary diagram: the
+   * same file shape, the same ops, the same change feed, any depth for free. Nesting the
+   * nodes inline would have made every op need a path instead of an id.
+   *
+   * Deliberately *not* called `diagram`: an op also carries a target diagram — which one
+   * to write to — and two different meanings one word apart is a trap.
+   */
+  subcanvas?: string;
   [key: string]: unknown;
 }
 
@@ -119,6 +130,8 @@ export type StructuralOp =
        * agent setting it cannot damage an arrangement the way a coordinate could.
        */
       color?: ColorInput;
+      /** Link this node to a diagram holding its detail. `none` unlinks without deleting. */
+      subcanvas?: string | 'none';
       data?: Record<string, unknown>;
     }
   | { op: 'update_edge'; id: string; label?: string }

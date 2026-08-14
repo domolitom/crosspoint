@@ -107,6 +107,8 @@ export function describeOp(op: LoggedOp): string {
       if (op.label) parts.push(`relabelled ${quote(op.label)}`);
       if (op.color === 'none') parts.push('colour cleared');
       else if (op.color) parts.push(`coloured ${op.color}`);
+      if (op.subcanvas === 'none') parts.push('subcanvas unlinked');
+      else if (op.subcanvas) parts.push(`subcanvas ${op.subcanvas}`);
       if (op.data) parts.push('data');
       return `~ node ${op.id} ${parts.length ? parts.join(', ') : 'data'}`;
     }

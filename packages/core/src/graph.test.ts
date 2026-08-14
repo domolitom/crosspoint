@@ -11,7 +11,7 @@ import {
   placeNode,
 } from './placement.js';
 import { parse, serialize } from './serialize.js';
-import { emptyGraph, isLayoutOp, type Graph } from './types.js';
+import { emptyGraph, isLayoutOp, type Graph, type GraphOp } from './types.js';
 
 const build = (): Graph => {
   let g = emptyGraph();
@@ -412,4 +412,82 @@ test('the agent view carries the colour, since colour is meaning', () => {
 // Colour being filtered as noise would defeat the point of storing it semantically.
 test('a colour change is structural, so the layout filter keeps it', () => {
   assert.equal(isLayoutOp({ op: 'update_node', id: 'a', color: 'red' }), false);
+});
+
+const withSubcanvas = (): Graph =>
+  applyOp(build(), { op: 'update_node', id: 'database', subcanvas: 'database-detail' });
+
+test('a node can reference the diagram holding its detail', () => {
+  const g = withSubcanvas();
+  assert.equal(g.nodes.find((n) => n.id === 'database')!.data.subcanvas, 'database-detail');
+});
+
+test('unlinking removes the key rather than storing a sentinel', () => {
+  const g = applyOp(withSubcanvas(), {
+    op: 'update_node',
+    id: 'database',
+    subcanvas: 'none',
+  });
+  const data = g.nodes.find((n) => n.id === 'database')!.data;
+  assert.equal('subcanvas' in data, false, 'an unlinked node looks untouched in the file');
+});
+
+test('linking a subcanvas leaves the label and colour alone, and vice versa', () => {
+  let g = applyOp(build(), { op: 'update_node', id: 'database', color: 'amber' });
+  g = applyOp(g, { op: 'update_node', id: 'database', subcanvas: 'database-detail' });
+  let data = g.nodes.find((n) => n.id === 'database')!.data;
+  assert.equal(data.label, 'Database', 'linking did not disturb the label');
+  assert.equal(data.color, 'amber', 'nor the colour');
+
+  g = applyOp(g, { op: 'update_node', id: 'database', label: 'Postgres' });
+  data = g.nodes.find((n) => n.id === 'database')!.data;
+  assert.equal(data.subcanvas, 'database-detail', 'and relabelling did not drop the link');
+});
+
+// A reference that silently disappeared would orphan a whole sub-plan invisibly.
+test('the reference survives every other structural op', () => {
+  let g = withSubcanvas();
+  const ops: GraphOp[] = [
+    { op: 'add_node', label: 'Queue' },
+    { op: 'add_edge', source: 'database', target: 'queue' },
+    { op: 'update_node', id: 'database', color: 'green' },
+    { op: 'update_edge', id: 'auth-service->database', label: 'reads' },
+    { op: 'align', ids: ['auth-service', 'database'], edge: 'left' },
+    { op: 'move_node', id: 'database', position: { x: 300, y: 300 } },
+    { op: 'delete_node', id: 'queue' },
+  ];
+
+  for (const op of ops) {
+    g = applyOp(g, op);
+    assert.equal(
+      g.nodes.find((n) => n.id === 'database')!.data.subcanvas,
+      'database-detail',
+      `${op.op} dropped the subcanvas reference`,
+    );
+  }
+});
+
+// The user's decision: deleting a box must not destroy an hour of sub-planning. The graph
+// model simply has no power to delete another diagram, and this pins that down.
+test('deleting the node removes only the node, never the referenced diagram', () => {
+  const g = applyOp(withSubcanvas(), { op: 'delete_node', id: 'database' });
+  assert.equal(g.nodes.some((n) => n.id === 'database'), false);
+  assert.equal(
+    JSON.stringify(g).includes('database-detail'),
+    false,
+    'the reference goes with the node, but nothing in the graph can reach the other file',
+  );
+});
+
+test('the agent view shows which nodes have detail behind them', () => {
+  const view = structuralView(withSubcanvas());
+  assert.deepEqual(view.nodes.find((n) => n.id === 'database'), {
+    id: 'database',
+    label: 'Database',
+    subcanvas: 'database-detail',
+  });
+});
+
+test('linking a subcanvas is structural, so the layout filter keeps it', () => {
+  assert.equal(isLayoutOp({ op: 'update_node', id: 'a', subcanvas: 'detail' }), false);
 });

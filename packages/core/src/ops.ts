@@ -40,11 +40,20 @@ function requireColor(color: unknown): void {
  */
 function mergeNodeData(
   current: NodeData,
-  change: { label?: string; color?: ColorInput; data?: Record<string, unknown> },
+  change: {
+    label?: string;
+    color?: ColorInput;
+    subcanvas?: string | 'none';
+    data?: Record<string, unknown>;
+  },
 ): NodeData {
   const data: NodeData = { ...current, ...change.data, label: change.label ?? current.label };
+  // `none` deletes the key rather than storing a sentinel, so an unset node reads as
+  // untouched in the file instead of carrying a marker into every diff.
   if (change.color === 'none') delete data.color;
   else if (change.color !== undefined) data.color = change.color;
+  if (change.subcanvas === 'none') delete data.subcanvas;
+  else if (change.subcanvas !== undefined) data.subcanvas = change.subcanvas;
   return data;
 }
 
