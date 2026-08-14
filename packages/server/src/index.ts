@@ -19,6 +19,7 @@ const KNOWN_OPS = new Set([
   'update_edge',
   'delete_node',
   'delete_edge',
+  'generate_graph',
   'move_node',
 ]);
 

@@ -284,3 +284,60 @@ test('consuming advances past repositioning even though it is not returned', asy
   assert.deepEqual(after.entries, [], 'the moves were consumed, not left pending');
   assert.equal(after.watermark, after.rev, 'watermark caught up to the latest rev');
 });
+
+test('generating a whole diagram costs one rev and reaches disk laid out', async () => {
+  const before = (await api('/api/graph')).body.rev;
+
+  const { status } = await op({
+    op: 'generate_graph',
+    replace: true,
+    nodes: [{ label: 'Entry' }, { label: 'Validate' }, { label: 'Emit' }],
+    edges: [
+      { source: 'entry', target: 'validate' },
+      { source: 'validate', target: 'emit' },
+    ],
+  });
+  assert.equal(status, 200);
+
+  const { body: graph } = await api('/api/graph');
+  assert.equal(graph.rev, before + 1, 'the whole graph is one rev, not one per node');
+  assert.deepEqual(graph.nodes.map((n: any) => n.id), ['entry', 'validate', 'emit']);
+
+  const y = (id: string) => graph.nodes.find((n: any) => n.id === id).position.y;
+  assert.ok(y('entry') < y('validate') && y('validate') < y('emit'), 'ranked top to bottom');
+
+  const onDisk = await until('the generated graph to reach disk', async () => {
+    const g = await readGraphFile();
+    return g.nodes.length === 3 ? g : null;
+  });
+  assert.ok(onDisk.nodes.every((n: any) => n.position), 'positions persisted');
+});
+
+test('a generated diagram shows up in the feed, wipe and all', async () => {
+  await api('/api/changes'); // drain
+
+  await op({
+    op: 'generate_graph',
+    replace: true,
+    nodes: [{ label: 'Only' }],
+    edges: [],
+  });
+
+  const { body } = await api('/api/changes');
+  assert.equal(body.entries.length, 1, 'one entry for the whole generation');
+  assert.equal(body.entries[0].kind, 'structural', 'it survives the layout filter');
+  assert.match(body.summary, /generated 1 node, 0 edges, replacing what was there/);
+});
+
+test('generating over a non-empty diagram is refused at the API boundary', async () => {
+  const { status, body } = await op({
+    op: 'generate_graph',
+    nodes: [{ label: 'Would clobber' }],
+    edges: [],
+  });
+  assert.equal(status, 400);
+  assert.match(body.error, /Pass replace: true/);
+
+  const { body: graph } = await api('/api/graph');
+  assert.deepEqual(graph.nodes.map((n: any) => n.id), ['only'], 'nothing was discarded');
+});
