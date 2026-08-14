@@ -142,6 +142,57 @@ server.registerTool(
 );
 
 server.registerTool(
+  'generate_graph',
+  {
+    title: 'Generate graph',
+    description:
+      'Build a whole diagram in one call. This is the tool to reach for when asked to ' +
+      'visualise something — an algorithm, a control flow graph, a plan with steps — ' +
+      'rather than calling add_node and add_edge dozens of times.\n\n' +
+      'You supply structure only: nodes with labels, and edges between them. The server ' +
+      'runs a hierarchical layout engine, so a forty-node graph arrives readable instead ' +
+      'of as a staircase. You express no coordinates here, exactly as everywhere else.\n\n' +
+      'Node ids default to the slugified label ("Parse input" becomes "parse-input"), and ' +
+      'edges refer to those ids. If two nodes would share an id you must give at least ' +
+      'one an explicit `id`: the call is refused rather than guessing, because otherwise ' +
+      'an edge naming that id would silently attach to the wrong node.\n\n' +
+      'It refuses to overwrite a diagram that already has nodes. Pass replace: true when ' +
+      'you genuinely mean to discard what is there — a human may have spent real time on ' +
+      'it. Prefer generating into an empty diagram when you can.',
+    inputSchema: {
+      nodes: z
+        .array(
+          z.object({
+            label: z.string().min(1).describe('Text shown on the node.'),
+            id: z
+              .string()
+              .optional()
+              .describe('Override the id derived from the label. Needed when labels collide.'),
+            color: colorSchema.optional(),
+          }),
+        )
+        .min(1)
+        .describe('Every node in the diagram. Order does not matter; layout is computed.'),
+      edges: z
+        .array(
+          z.object({
+            source: z.string().describe('Id of the node the edge leaves.'),
+            target: z.string().describe('Id of the node the edge enters.'),
+            label: z.string().optional().describe('Optional text on the edge.'),
+          }),
+        )
+        .describe('Edges between the nodes above, by id. Pass an empty array for none.'),
+      replace: z
+        .boolean()
+        .optional()
+        .describe('Discard the existing diagram. Required if it has any nodes.'),
+    },
+  },
+  async ({ nodes, edges, replace }) =>
+    ok(await applyOp({ op: 'generate_graph', nodes, edges, replace })),
+);
+
+server.registerTool(
   'add_edge',
   {
     title: 'Add edge',
