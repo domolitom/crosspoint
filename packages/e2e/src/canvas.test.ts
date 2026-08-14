@@ -474,3 +474,208 @@ test('the switcher lists diagrams and switching changes what is on screen', asyn
     (await stack.page.locator(`.react-flow__node[data-id="${here}"]`).count()) > 0,
   );
 });
+
+/*
+ * Subcanvases. A node can hold another diagram, opened in a panel beside it.
+ *
+ * The riskiest behaviour here is that a panel edit lands in the subcanvas and NOT in the
+ * parent — the panel writes to a diagram that is deliberately not the active one, so a
+ * targeting mistake would silently corrupt the diagram the human is looking at.
+ */
+
+/** Give a node a subcanvas holding two nodes, and return its name. */
+async function seedSubcanvas(nodeId: string, name: string): Promise<string> {
+  await stack.createDiagram(name);
+  await stack.op(
+    {
+      op: 'generate_graph',
+      nodes: [{ label: 'Tokenize' }, { label: 'Validate' }],
+      edges: [{ source: 'tokenize', target: 'validate' }],
+    },
+    name,
+  );
+  const { status } = await stack.op({ op: 'update_node', id: nodeId, subcanvas: name });
+  assert.equal(status, 200, 'linking the subcanvas failed');
+  return name;
+}
+
+test('the lens badge marks only the nodes that have a subcanvas', async () => {
+  const plain = await seed('No detail', 600, 600);
+  const linked = await seed('Has detail', 600, 750);
+  await seedSubcanvas(linked, 'has-detail-impl');
+
+  await openCanvas(stack);
+  await until('both nodes to render', async () =>
+    (await stack.page.locator(`.react-flow__node[data-id="${linked}"]`).count()) > 0,
+  );
+
+  // Opacity, not presence: the badge exists on every node so a bare one can be clicked to
+  // create a subcanvas, but only a linked node advertises itself at rest.
+  const opacity = (id: string) =>
+    stack.page
+      .locator(`.react-flow__node[data-id="${id}"] .cp-lens`)
+      .evaluate((el) => getComputedStyle(el).opacity);
+
+  assert.equal(await opacity(linked), '1', 'a node with detail shows its lens');
+  assert.equal(await opacity(plain), '0', 'a node without one does not');
+  assert.equal(
+    await stack.page.locator(`.react-flow__node[data-id="${linked}"] .cp-lens-linked`).count(),
+    1,
+    'and it is marked as linked, not merely visible',
+  );
+});
+
+test('clicking the lens opens a panel showing that diagram', async () => {
+  const graph = await stack.graph();
+  const linked = graph.nodes.find((n: any) => n.data.subcanvas === 'has-detail-impl');
+  assert.ok(linked, 'expected the linked node from the previous test');
+
+  await stack.page.locator(`.react-flow__node[data-id="${linked.id}"] .cp-lens`).click();
+  await until('the panel to open', async () => (await stack.page.locator('.lens-panel').count()) > 0);
+
+  await until('the panel to render the subcanvas', async () => {
+    const labels = await stack.page.locator('.lens-panel .react-flow__node').allInnerTexts();
+    return labels.length === 2 && labels.join(' ').includes('Tokenize');
+  });
+
+  const crumbs = await stack.page.locator('.lens-panel .lens-crumb').allInnerTexts();
+  assert.deepEqual(
+    crumbs.map((c) => c.trim()),
+    ['has-detail-impl'],
+    'the trail starts at the diagram we opened',
+  );
+
+  // The parent must still be on screen — the whole point of a panel over a switch.
+  assert.ok(
+    (await stack.page.locator(`.react-flow__node[data-id="${linked.id}"]`).count()) > 0,
+    'the parent node is still visible behind the panel',
+  );
+});
+
+test('editing inside the panel writes to the subcanvas, not the parent', async () => {
+  const parentBefore = await stack.graph();
+  const subBefore = await stack.graph('has-detail-impl');
+
+  // Drag a node inside the panel. Position is the cheapest edit to verify precisely.
+  const target = stack.page.locator('.lens-panel .react-flow__node').first();
+  const id = await target.getAttribute('data-id');
+  const box = await target.boundingBox();
+  assert.ok(box && id, 'expected a node in the panel');
+  await dragMouse(
+    stack.page,
+    { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+    { x: box.x + box.width / 2 + 60, y: box.y + box.height / 2 + 45 },
+  );
+
+  const moved = await until('the panel edit to reach its own diagram', async () => {
+    const after = await stack.graph('has-detail-impl');
+    const before = subBefore.nodes.find((n: any) => n.id === id);
+    const now = after.nodes.find((n: any) => n.id === id);
+    return now && (now.position.x !== before.position.x || now.position.y !== before.position.y)
+      ? { before, now }
+      : null;
+  });
+  assert.ok(moved, 'the node moved in the subcanvas');
+
+  const parentAfter = await stack.graph();
+  assert.deepEqual(
+    parentAfter.nodes.map((n: any) => ({ id: n.id, ...n.position })),
+    parentBefore.nodes.map((n: any) => ({ id: n.id, ...n.position })),
+    'and nothing in the parent diagram moved',
+  );
+});
+
+test('lensing deeper extends the trail, and a crumb walks back', async () => {
+  // Give a node *inside* the panel its own subcanvas, then lens into it.
+  const sub = await stack.graph('has-detail-impl');
+  const inner = sub.nodes[0].id;
+  await stack.createDiagram('deeper');
+  await stack.op({ op: 'add_node', label: 'Deepest' }, 'deeper');
+  await stack.op({ op: 'update_node', id: inner, subcanvas: 'deeper' }, 'has-detail-impl');
+
+  await until('the inner lens to appear', async () =>
+    (await stack.page.locator(`.lens-panel .react-flow__node[data-id="${inner}"] .cp-lens-linked`).count()) > 0,
+  );
+  await stack.page.locator(`.lens-panel .react-flow__node[data-id="${inner}"] .cp-lens`).click();
+
+  await until('the trail to have two steps', async () => {
+    const crumbs = await stack.page.locator('.lens-panel .lens-crumb').allInnerTexts();
+    return crumbs.length === 2;
+  });
+  const deep = await stack.page.locator('.lens-panel .lens-crumb').allInnerTexts();
+  assert.deepEqual(deep.map((c) => c.trim()), ['has-detail-impl', 'deeper']);
+  assert.ok(
+    (await stack.page.locator('.lens-panel').count()) === 1,
+    'still one panel, not a stack of them',
+  );
+
+  // Walking back up replaces the contents rather than opening a second panel.
+  await stack.page.locator('.lens-panel .lens-crumb').first().click();
+  await until('the trail to shrink', async () => {
+    const crumbs = await stack.page.locator('.lens-panel .lens-crumb').allInnerTexts();
+    return crumbs.length === 1;
+  });
+});
+
+test('opening another lens replaces the open panel', async () => {
+  // Link a second top-level node, then lens it while a panel is already open.
+  const other = await seed('Other detail', 900, 600);
+  await stack.createDiagram('other-impl');
+  await stack.op({ op: 'add_node', label: 'Elsewhere' }, 'other-impl');
+  await stack.op({ op: 'update_node', id: other, subcanvas: 'other-impl' });
+
+  await until('the second lens to appear', async () =>
+    (await stack.page.locator(`.react-flow__node[data-id="${other}"] .cp-lens-linked`).count()) > 0,
+  );
+  await stack.page.locator(`.react-flow__node[data-id="${other}"] .cp-lens`).click();
+
+  await until('the panel to show the other diagram', async () => {
+    const crumbs = await stack.page.locator('.lens-panel .lens-crumb').allInnerTexts();
+    return crumbs.length === 1 && crumbs[0].trim() === 'other-impl';
+  });
+  assert.equal(await stack.page.locator('.lens-panel').count(), 1, 'exactly one panel');
+});
+
+// Two live editable views of one graph would fight each other's pushes, and the trail
+// would stop meaning anything.
+test('lensing the diagram you are already in is refused visibly', async () => {
+  const active = (await stack.page.locator('.diagram-switcher').inputValue()).trim();
+  const node = await seed('Points at itself', 900, 900);
+  await stack.op({ op: 'update_node', id: node, subcanvas: active });
+
+  await until('the self-referential lens to appear', async () =>
+    (await stack.page.locator(`.react-flow__node[data-id="${node}"] .cp-lens-linked`).count()) > 0,
+  );
+  await stack.page.locator(`.react-flow__node[data-id="${node}"] .cp-lens`).click();
+
+  // Visibly refused: an error in the header, not a panel that silently fails to appear.
+  const message = await until('the refusal to be shown', async () => {
+    const text = await stack.page.locator('.bar .error').allInnerTexts();
+    return text.find((t) => t.includes(active)) ?? null;
+  });
+  assert.match(message, /already in/i);
+  const crumbs = await stack.page.locator('.lens-panel .lens-crumb').allInnerTexts();
+  assert.ok(
+    !crumbs.some((c) => c.trim() === active),
+    'and the active diagram was not opened in a panel',
+  );
+});
+
+test('closing the panel leaves the main canvas intact', async () => {
+  if ((await stack.page.locator('.lens-panel').count()) === 0) {
+    // Re-open one so this test does not depend on which state the previous left behind.
+    const graph = await stack.graph();
+    const linked = graph.nodes.find((n: any) => n.data.subcanvas === 'other-impl');
+    await stack.page.locator(`.react-flow__node[data-id="${linked.id}"] .cp-lens`).click();
+    await until('a panel to be open', async () =>
+      (await stack.page.locator('.lens-panel').count()) > 0,
+    );
+  }
+
+  const before = (await stack.graph()).nodes.length;
+  await stack.page.locator('.lens-panel .lens-close').click();
+  await until('the panel to close', async () =>
+    (await stack.page.locator('.lens-panel').count()) === 0,
+  );
+  assert.equal((await stack.graph()).nodes.length, before, 'closing changed nothing');
+});

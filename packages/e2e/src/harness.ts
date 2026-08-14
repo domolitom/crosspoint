@@ -75,10 +75,12 @@ export interface Stack {
   browser: Browser;
   page: Page;
   graphPath: string;
-  /** Full graph including geometry — the canvas view. */
-  graph(): Promise<any>;
+  /** Full graph including geometry — the canvas view. Names a diagram, or the active one. */
+  graph(diagram?: string): Promise<any>;
   /** Apply an op the way the MCP server would, over HTTP. */
-  op(body: Record<string, unknown>): Promise<{ status: number; body: any }>;
+  op(body: Record<string, unknown>, diagram?: string): Promise<{ status: number; body: any }>;
+  /** Create a diagram. Does not switch to it, matching the server's behaviour. */
+  createDiagram(name: string): Promise<{ status: number; body: any }>;
   stop(): Promise<void>;
 }
 
@@ -117,12 +119,25 @@ export async function startStack(): Promise<Stack> {
     browser,
     page,
     graphPath,
-    graph: async () => (await fetch(`${API}/api/graph`)).json(),
-    op: async (body) => {
+    graph: async (diagram) =>
+      (
+        await fetch(
+          `${API}/api/graph${diagram ? `?diagram=${encodeURIComponent(diagram)}` : ''}`,
+        )
+      ).json(),
+    op: async (body, diagram) => {
       const res = await fetch(`${API}/api/op`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ op: body }),
+        body: JSON.stringify(diagram ? { op: body, diagram } : { op: body }),
+      });
+      return { status: res.status, body: await res.json() };
+    },
+    createDiagram: async (name) => {
+      const res = await fetch(`${API}/api/diagrams`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
       });
       return { status: res.status, body: await res.json() };
     },
