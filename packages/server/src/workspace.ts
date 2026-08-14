@@ -181,6 +181,20 @@ export class Workspace {
     return this.file(this.activeName).current();
   }
 
+  /**
+   * Any diagram's graph by name, defaulting to the active one.
+   *
+   * A lens panel renders a diagram the human is not "in", so reading one must not require
+   * switching to it — switching would move the main canvas out from under them.
+   */
+  graphOf(name?: string): Graph {
+    return this.file(name ?? this.activeName).current();
+  }
+
+  has(name: string): boolean {
+    return this.diagrams.has(name);
+  }
+
   private file(name: string): DiagramFile {
     const diagram = this.diagrams.get(name);
     if (!diagram) throw new UnknownDiagramError(name, this.names());

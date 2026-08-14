@@ -40,15 +40,19 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
 
   try {
+    // `?diagram=` reads one the human is not looking at — a lens panel renders a
+    // subcanvas without switching, and an agent can inspect one the same way.
+    const named = url.searchParams.get('diagram') ?? undefined;
+
     if (req.method === 'GET' && url.pathname === '/api/graph') {
       // Full view, geometry included — this is what the canvas renders.
-      return json(res, 200, store.current());
+      return json(res, 200, store.graphOf(named));
     }
 
     if (req.method === 'GET' && url.pathname === '/api/graph/structural') {
       // Agent view: structure and labels only. Coordinates are data an agent must
       // preserve, not data it consumes, so they are omitted unless asked for.
-      return json(res, 200, structuralView(store.current()));
+      return json(res, 200, structuralView(store.graphOf(named)));
     }
 
     if (req.method === 'GET' && url.pathname === '/api/changes') {
@@ -97,7 +101,14 @@ const server = createServer(async (req, res) => {
       if (!op || typeof op.op !== 'string' || !KNOWN_OPS.has(op.op)) {
         return json(res, 400, { error: `Unknown op: ${JSON.stringify(body.op)}` });
       }
-      const graph = store.apply(op, { baseRev: body.baseRev, origin: body.clientId });
+      // An explicit diagram writes there without switching the human's view. That is what
+      // lets a lens panel edit a subcanvas, and an agent detail a step, while the main
+      // canvas stays where it is.
+      const graph = store.apply(op, {
+        baseRev: body.baseRev,
+        origin: body.clientId,
+        diagram: body.diagram ? String(body.diagram) : undefined,
+      });
       return json(res, 200, { rev: graph.rev, graph: structuralView(graph) });
     }
 
@@ -126,9 +137,10 @@ wss.on('connection', (socket: WebSocket) => {
     if (event.type === 'diagrams') {
       return send({ type: 'diagrams', active: store.active, diagrams: store.list() });
     }
-    // A diagram nobody is looking at still changes — the agent may be working in one
-    // while the human watches another — so only push what this canvas is showing.
-    if (event.diagram !== store.active) return;
+    // Every diagram is pushed, tagged with its name, and the client renders what it needs.
+    // A lens panel is live on a diagram that is not the active one, so filtering to the
+    // active diagram here would leave an open panel silently stale. Simpler than per-client
+    // subscriptions, and the payload is irrelevant for a local single-user tool.
     send({ type: 'graph', diagram: event.diagram, graph: event.graph, origin: event.origin });
   });
 
@@ -136,7 +148,10 @@ wss.on('connection', (socket: WebSocket) => {
     try {
       const msg = JSON.parse(String(raw));
       if (msg.type !== 'op') return;
-      store.apply(msg.op as GraphOp, { origin: clientId });
+      store.apply(msg.op as GraphOp, {
+        origin: clientId,
+        diagram: msg.diagram ? String(msg.diagram) : undefined,
+      });
     } catch (err) {
       socket.send(JSON.stringify({ type: 'error', error: (err as Error).message }));
     }
