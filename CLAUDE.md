@@ -208,6 +208,20 @@ its graph in `packages/server/` until the root script started passing an absolut
 template literal worked fine at runtime but made git classify the file as *binary* — diffs
 became `Bin 6794 -> 7788 bytes` and grep skipped the file entirely.
 
+**Each `<ReactFlow>` needs its own `ReactFlowProvider`.** `useReactFlow` resolves to the
+nearest one, so the lens panel sharing the main canvas's store would pan and zoom the canvas
+*behind* it instead of itself — and `screenToFlowPosition` would convert against the wrong
+viewport, dropping palette nodes in the wrong place.
+
+**A canvas must send its own diagram with every op.** `GraphCanvas` is shared between the main
+view and the panel, so an op that omits its target silently lands in whatever is *active* —
+which for a panel is never the diagram it is showing. That corrupts the diagram the human is
+looking at while appearing to work. The e2e test that catches it fails alone when the argument
+is dropped; keep it that way.
+
+**Selection has to carry its diagram.** The colour palette lives in the header while the
+selection may be inside a panel, so a bare list of ids is not enough to know where to write.
+
 **The canvas has no error surface.** A dropped interaction just does nothing. Three separate
 defects were invisible for exactly this reason. Verify canvas changes by driving a real
 browser and asserting against the HTTP API — not by reasoning about the code.
@@ -216,7 +230,31 @@ browser and asserting against the HTTP API — not by reasoning about the code.
 
 Check the code, not this list, for what exists — but these are done and covered by tests:
 the op log behind `get_changes`, `generate_graph` with dagre, named diagrams with a switcher,
-node colour, semantic layout ops (`align`, `distribute`), and the Playwright suite in `npm test`.
+node colour, semantic layout ops (`align`, `distribute`), subcanvases with the lens panel, and
+the Playwright suite in `npm test`.
+
+### Subcanvases
+
+A node's `data.subcanvas` names another diagram holding its detail. Called `subcanvas` and not
+`diagram` deliberately: an op also carries a *target* diagram — which one to write to — and two
+different meanings one word apart is a trap.
+
+The lens badge exists on **every** node but is only visible at rest when the node has a
+subcanvas, appearing on hover otherwise, which is how you create one. Both facts matter: a
+badge only rendered on linked nodes would leave creation with no affordance, and a badge always
+visible would stop the canvas showing at a glance which steps have detail behind them.
+
+The panel is the *same* `GraphCanvas` component as the main canvas, not a preview. That is
+deliberate — the requirement is that a subcanvas is fully editable, and anything reimplemented
+for the panel would drift out of step silently.
+
+Two circular cases are refused with a visible message: opening the diagram you are already in,
+and opening one already further up the trail. Both would give two live editable views of one
+graph, each fighting the other's pushes.
+
+Deleting a linked node **orphans** the subcanvas. The graph model has no power to reach another
+file, so this is true by construction rather than by a check — one click must not be able to
+discard an hour of sub-planning.
 
 ## Designed and agreed, not yet built
 
@@ -224,11 +262,6 @@ Check the code before trusting this list; it records decisions, not status.
 
 - **Batched edits** — the user edits freely and nothing happens until they say go; the agent
   then reads the accumulated diff. Never act on a change the moment it lands.
-- **Subcanvases** — a node references another diagram by name in its `data`. A lens badge
-  opens it in a floating, *editable* panel anchored to that node. One panel at a time;
-  lensing deeper replaces its contents with an in-panel breadcrumb. Deleting the parent node
-  **orphans** the subcanvas rather than destroying it. A panel must refuse to open the diagram
-  that is already the active main canvas — that is circular.
 - **Code references** in node `data` (`file`, `symbol`, `lines`).
 
 ## Parked decisions
