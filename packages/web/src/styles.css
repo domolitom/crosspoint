@@ -43,6 +43,24 @@ body,
   background: #eef0f4;
 }
 
+/* Scoped under .bar for the same reason the swatches are: a bare class loses to
+   `.bar button` on specificity, which once rendered every swatch as a grey pill. */
+.bar .diagram-switcher {
+  padding: 5px 8px;
+  border: 1px solid #cbd2dc;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 13px;
+  font-family: inherit;
+  max-width: 220px;
+}
+
+.bar .new-diagram {
+  padding: 4px 9px;
+  font-size: 15px;
+  line-height: 1;
+}
+
 /* Deliberately shaped like a node, so what you drag looks like what you get. */
 .palette-node {
   width: 84px;

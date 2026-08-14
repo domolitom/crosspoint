@@ -1,9 +1,17 @@
 import type { Graph, GraphOp } from '@crosspoint/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+export interface DiagramSummary {
+  name: string;
+  nodes: number;
+  edges: number;
+  rev: number;
+}
+
 type ServerMessage =
   | { type: 'hello'; clientId: string }
-  | { type: 'graph'; graph: Graph; origin?: string }
+  | { type: 'graph'; diagram: string; graph: Graph; origin?: string }
+  | { type: 'diagrams'; active: string; diagrams: DiagramSummary[] }
   | { type: 'error'; error: string };
 
 /**
@@ -14,6 +22,8 @@ type ServerMessage =
  */
 export function useGraph() {
   const [graph, setGraph] = useState<Graph | null>(null);
+  const [diagram, setDiagram] = useState<string | null>(null);
+  const [diagrams, setDiagrams] = useState<DiagramSummary[]>([]);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const socket = useRef<WebSocket | null>(null);
@@ -32,8 +42,13 @@ export function useGraph() {
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data) as ServerMessage;
         if (msg.type === 'hello') clientId.current = msg.clientId;
-        else if (msg.type === 'graph') setGraph(msg.graph);
-        else if (msg.type === 'error') setError(msg.error);
+        else if (msg.type === 'graph') {
+          setGraph(msg.graph);
+          setDiagram(msg.diagram);
+        } else if (msg.type === 'diagrams') {
+          setDiagrams(msg.diagrams);
+          setDiagram(msg.active);
+        } else if (msg.type === 'error') setError(msg.error);
       };
       ws.onclose = () => {
         setConnected(false);
@@ -57,5 +72,49 @@ export function useGraph() {
     }
   }, []);
 
-  return { graph, connected, error, sendOp };
+  /**
+   * Diagram management goes over HTTP rather than the socket.
+   *
+   * These are not ops: creating or switching changes nothing inside a diagram, so it has
+   * no rev and no place in the change feed. The server broadcasts the result, which is
+   * what actually updates this hook — the same "server is the only authority" rule the
+   * ops path follows.
+   */
+  const switchDiagram = useCallback(async (name: string) => {
+    const res = await fetch('/api/diagrams/active', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) setError(((await res.json()) as { error?: string }).error ?? 'Switch failed');
+  }, []);
+
+  const createDiagram = useCallback(
+    async (name: string) => {
+      const res = await fetch('/api/diagrams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        setError(((await res.json()) as { error?: string }).error ?? 'Create failed');
+        return;
+      }
+      // Creating deliberately does not switch on the server, so do it here — someone who
+      // just made a diagram wants to be looking at it.
+      await switchDiagram(name);
+    },
+    [switchDiagram],
+  );
+
+  return {
+    graph,
+    diagram,
+    diagrams,
+    connected,
+    error,
+    sendOp,
+    switchDiagram,
+    createDiagram,
+  };
 }

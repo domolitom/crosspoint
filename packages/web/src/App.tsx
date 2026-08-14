@@ -38,8 +38,9 @@ export default function App() {
 }
 
 function Canvas() {
-  const { graph, connected, error, sendOp } = useGraph();
-  const { screenToFlowPosition } = useReactFlow();
+  const { graph, diagram, diagrams, connected, error, sendOp, switchDiagram, createDiagram } =
+    useGraph();
+  const { screenToFlowPosition, fitView } = useReactFlow();
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   /** Nodes the user is mid-drag on; server state must not yank them out from under. */
@@ -210,6 +211,22 @@ function Canvas() {
     [sendOp],
   );
 
+  // A switch replaces every node, so anything remembered about the old diagram is stale:
+  // a mid-drag guard would strand a node id that no longer exists, and the viewport would
+  // still be framing the graph we just left.
+  useEffect(() => {
+    if (!diagram) return;
+    dragging.current.clear();
+    // Wait for the new nodes to have been measured, or fitView frames nothing.
+    const timer = setTimeout(() => fitView({ duration: 200 }), 60);
+    return () => clearTimeout(timer);
+  }, [diagram, fitView]);
+
+  const onCreateDiagram = useCallback(() => {
+    const name = window.prompt('New diagram name');
+    if (name?.trim()) void createDiagram(name.trim());
+  }, [createDiagram]);
+
   const onPaletteDragStart = useCallback((event: React.DragEvent) => {
     event.dataTransfer.setData(DRAG_TYPE, 'node');
     event.dataTransfer.effectAllowed = 'copy';
@@ -244,6 +261,25 @@ function Canvas() {
     <div className="app">
       <header className="bar">
         <strong>Crosspoint</strong>
+
+        {/* Which diagram is active is server state; showing it stops that being hidden. */}
+        <select
+          className="diagram-switcher"
+          aria-label="Active diagram"
+          value={diagram ?? ''}
+          onChange={(event) => void switchDiagram(event.target.value)}
+          disabled={diagrams.length === 0}
+        >
+          {diagrams.map((option) => (
+            <option key={option.name} value={option.name}>
+              {option.name} ({option.nodes})
+            </option>
+          ))}
+        </select>
+        <button type="button" className="new-diagram" title="New diagram" onClick={onCreateDiagram}>
+          +
+        </button>
+
         <div
           className="palette-node"
           draggable
