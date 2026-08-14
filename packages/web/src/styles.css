@@ -16,6 +16,97 @@ body,
   height: 100%;
 }
 
+/* Containing block for the lens panel, which is positioned over the canvas. */
+.canvas-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/*
+ * The lens panel: a subcanvas floating beside the node it belongs to.
+ *
+ * Every rule here is scoped under `.lens-panel` for the same reason the swatches are
+ * scoped under `.bar` — a bare class loses to `.bar button` on specificity, and that
+ * once rendered every colour swatch as an identical grey pill while the tests passed.
+ */
+.lens-panel {
+  position: absolute;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid #cbd2dc;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgb(15 23 42 / 18%);
+  overflow: hidden;
+}
+
+.lens-panel .lens-panel-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #e2e5ea;
+  background: #f7f8fa;
+  font-size: 12px;
+}
+
+.lens-panel .lens-crumbs {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.lens-panel .lens-crumb {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: #2563eb;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.lens-panel .lens-crumb:disabled {
+  color: #384152;
+  cursor: default;
+  font-weight: 600;
+}
+
+.lens-panel .lens-crumb:not(:disabled):hover {
+  background: #e8eefc;
+}
+
+.lens-panel .lens-sep {
+  color: #9aa3b2;
+}
+
+.lens-panel .lens-close {
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #cbd2dc;
+  border-radius: 5px;
+  background: #fff;
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lens-panel .lens-close:hover {
+  background: #eef0f4;
+}
+
+.lens-panel .lens-panel-body {
+  flex: 1;
+  min-height: 0;
+}
+
 .bar {
   display: flex;
   align-items: center;
@@ -205,6 +296,53 @@ body,
 .react-flow__node.cp-color-violet {
   background: #ede9fe;
   border-color: #7c3aed;
+}
+
+/*
+ * The lens badge.
+ *
+ * Present on every node but only *visible* at rest when the node actually has a
+ * subcanvas, so the canvas reads as "these steps have detail behind them" at a glance.
+ * On a node without one it appears on hover, which is how you create one — otherwise
+ * creating would need a second affordance somewhere else entirely.
+ */
+.react-flow__node .cp-lens {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #cbd2dc;
+  border-radius: 50%;
+  background: #fff;
+  color: #6b7280;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.react-flow__node:hover .cp-lens {
+  opacity: 1;
+}
+
+/* A node that has detail behind it says so without being hovered. */
+.react-flow__node .cp-lens-linked {
+  opacity: 1;
+  border-color: #2563eb;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.react-flow__node .cp-lens:hover {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
 }
 
 .colours {

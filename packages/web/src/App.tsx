@@ -1,226 +1,127 @@
-import {
-  applyEdgeChanges,
-  applyNodeChanges,
-  Background,
-  Controls,
-  MarkerType,
-  MiniMap,
-  ReactFlow,
-  ReactFlowProvider,
-  useReactFlow,
-  type Connection,
-  type Edge,
-  type EdgeChange,
-  type Node,
-  type NodeChange,
-} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { NODE_COLORS, type ColorInput, type NodeColor } from '@crosspoint/core';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { NODE_COLORS, type ColorInput, type GraphOp } from '@crosspoint/core';
+import { useCallback, useState } from 'react';
 
-import { DirectedEdge } from './DirectedEdge';
+import { DRAG_TYPE, GraphCanvas } from './GraphCanvas';
+import { SubcanvasPanel, type LensStep } from './SubcanvasPanel';
 import { useGraph } from './useGraph';
 
-const EDGE_COLOR = '#7b8494';
-// Defined once at module scope: a new object each render remounts every edge.
-const edgeTypes = { directed: DirectedEdge };
-
-/** Identifies our own palette drags, so unrelated drops onto the canvas are ignored. */
-const DRAG_TYPE = 'application/crosspoint-node';
-
 export default function App() {
-  // screenToFlowPosition comes from useReactFlow, which needs a provider above it.
-  return (
-    <ReactFlowProvider>
-      <Canvas />
-    </ReactFlowProvider>
-  );
-}
+  const {
+    graph,
+    graphs,
+    diagram,
+    diagrams,
+    connected,
+    error,
+    setError,
+    sendOp,
+    loadDiagram,
+    switchDiagram,
+    createDiagram,
+  } = useGraph();
 
-function Canvas() {
-  const { graph, diagram, diagrams, connected, error, sendOp, switchDiagram, createDiagram } =
-    useGraph();
-  const { screenToFlowPosition, fitView } = useReactFlow();
-  const [nodes, setNodes] = useState<Node[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
-  /** Nodes the user is mid-drag on; server state must not yank them out from under. */
-  const dragging = useRef(new Set<string>());
+  /**
+   * The current selection *and which diagram it lives in*.
+   *
+   * The palette lives in the header but the selection may be inside a panel, so the
+   * diagram has to travel with it — colouring a panel node must write to that subcanvas,
+   * not to whatever happens to be active behind it.
+   */
+  const [selection, setSelection] = useState<{ diagram: string; ids: string[] }>({
+    diagram: '',
+    ids: [],
+  });
+  /** The open lens, deepest last. Empty means no panel. */
+  const [trail, setTrail] = useState<LensStep[]>([]);
 
-  useEffect(() => {
-    if (!graph) return;
+  const selectedIds = selection.ids;
 
-    setNodes((prev) => {
-      const previous = new Map(prev.map((n) => [n.id, n]));
-      return graph.nodes.map((node) => {
-        const local = previous.get(node.id);
-        // A drag in flight is the freshest truth for that one node; everything else
-        // takes the server's value. This is what keeps an agent's structural edit from
-        // making the node you are holding jump back to its old spot.
-        const position =
-          local && dragging.current.has(node.id)
-            ? local.position
-            : (node.position ?? { x: 0, y: 0 });
-        // Spread the whole data bag rather than picking out the label: anything else the
-        // node carries — colour today, code references later — would otherwise be dropped
-        // on every server push and silently vanish from the canvas.
-        const color = node.data.color as NodeColor | undefined;
-        return {
-          id: node.id,
-          position,
-          data: { ...node.data, label: String(node.data.label ?? node.id) },
-          className: color ? `cp-color-${color}` : undefined,
-          selected: local?.selected,
-        };
-      });
-    });
+  const closePanel = useCallback(() => setTrail([]), []);
 
-    // A→B and B→A are two distinct edges whose default curves land almost on top of each
-    // other, which hides one of the two labels. Pushing the labels to opposite sides of
-    // their line separates them. Direction is only useful if you can tell which arrow a
-    // label belongs to.
-    const pairs = new Set(graph.edges.map((e) => `${e.source}|${e.target}`));
+  /**
+   * Open a node's subcanvas, creating one if it has none.
+   *
+   * The trail is what makes arbitrary depth work with a single panel, and it is also what
+   * lets the two circular cases be refused: a diagram cannot be its own detail, and it
+   * cannot appear twice in one path.
+   */
+  const openLens = useCallback(
+    async (node: { id: string; label: string; subcanvas?: string }, parent: string) => {
+      const anchor = lensAnchor(node.id);
+      let name = node.subcanvas;
 
-    setEdges((prev) => {
-      const previous = new Map(prev.map((e) => [e.id, e]));
-      return graph.edges.map((edge) => {
-        const reciprocal = pairs.has(`${edge.target}|${edge.source}`);
-        return {
-          id: edge.id,
-          type: 'directed',
-          source: edge.source,
-          target: edge.target,
-          label: edge.label,
-          // Carried over explicitly: any push rebuilds this list, and dropping `selected`
-          // would silently deselect the edge the user just clicked.
-          selected: previous.get(edge.id)?.selected,
-          // The model has always been directed — source and target are not interchangeable.
-          // The arrowhead just makes the canvas say what the data already says.
-          markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: EDGE_COLOR },
-          style: { stroke: EDGE_COLOR, strokeWidth: 1.5 },
-          // One constant, not a per-edge sign: the normal is computed from the
-          // source→target axis, which already points the opposite way for the reverse
-          // edge. Flipping the sign as well would cancel that out and stack them again.
-          data: {
-            labelOffset: reciprocal ? 22 : 0,
-            // Select-then-Delete is invisible unless you already know about it, so a
-            // selected edge also offers a click target.
-            onDelete: () => sendOp({ op: 'delete_edge', id: edge.id }),
-          },
-        };
-      });
-    });
-  }, [graph, sendOp]);
+      if (!name) {
+        const suggested = `${slug(node.label) || node.id}-detail`;
+        const chosen = window.prompt('Name for this subcanvas', suggested);
+        if (!chosen?.trim()) return;
+        name = chosen.trim();
 
-  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
-    // Selection changes arrive here. Without this, clicking an edge never marks it
-    // selected, so Delete has nothing to act on and onEdgesDelete never fires.
-    // Removals are applied locally too, but the server push is what makes them real.
-    setEdges((es) => applyEdgeChanges(changes, es));
-  }, []);
-
-  const onNodesChange = useCallback((changes: NodeChange[]) => {
-    // Applied locally so dragging stays at 60fps. Only drag-stop is persisted —
-    // intermediate positions are animation, not data.
-    setNodes((ns) => applyNodeChanges(changes, ns));
-  }, []);
-
-  // React Flow passes every dragged node as the third argument. Reading only the second
-  // moved the whole selection on screen but persisted just the node under the cursor, so
-  // the rest snapped back on the next server push — and only that one node was guarded
-  // against an incoming edit mid-drag. `nodes` is empty for some single-node drags, hence
-  // the fallback.
-  const onNodeDragStart = useCallback((_: unknown, node: Node, nodes: Node[]) => {
-    for (const dragged of nodes?.length ? nodes : [node]) dragging.current.add(dragged.id);
-  }, []);
-
-  const onNodeDragStop = useCallback(
-    (_: unknown, node: Node, nodes: Node[]) => {
-      // One narrow op per node rather than a batch op, consistent with everything else
-      // here. N revs for one gesture is fine: persistence is debounced to a single write.
-      for (const dragged of nodes?.length ? nodes : [node]) {
-        dragging.current.delete(dragged.id);
-        sendOp({ op: 'move_node', id: dragged.id, position: dragged.position });
-      }
-    },
-    [sendOp],
-  );
-
-  const onConnect = useCallback(
-    (connection: Connection) => {
-      // No optimistic edge: the server assigns the id (`source->target`), and inventing a
-      // local one would briefly render a duplicate that then gets replaced. Over a local
-      // socket the round trip is imperceptible, and it keeps the server the only authority
-      // on what exists — the same rule every other mutation here follows.
-      if (connection.source && connection.target) {
-        sendOp({ op: 'add_edge', source: connection.source, target: connection.target });
-      }
-    },
-    [sendOp],
-  );
-
-  const onReconnect = useCallback(
-    (oldEdge: Edge, connection: Connection) => {
-      // Same rule as onConnect: no optimistic update. The server regenerates the id from
-      // the new endpoints, so a locally reconnected edge would carry a stale id until the
-      // push replaced it.
-      if (connection.source && connection.target) {
-        sendOp({
-          op: 'reconnect_edge',
-          id: oldEdge.id,
-          source: connection.source,
-          target: connection.target,
+        // Create then link. A name already in use is fine to adopt — reusing an existing
+        // diagram as a node's detail is a reasonable thing to want.
+        const res = await fetch('/api/diagrams', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
         });
+        if (!res.ok) {
+          const body = (await res.json()) as { error?: string };
+          // Anything other than "already exists" is a real failure worth surfacing.
+          if (!/already exists/i.test(body.error ?? '')) {
+            setError(body.error ?? 'Could not create the subcanvas');
+            return;
+          }
+        }
+        sendOp({ op: 'update_node', id: node.id, subcanvas: name }, parent);
       }
-    },
-    [sendOp],
-  );
 
-  const onNodesDelete = useCallback(
-    (deleted: Node[]) => {
-      for (const node of deleted) sendOp({ op: 'delete_node', id: node.id });
-    },
-    [sendOp],
-  );
-
-  const onEdgesDelete = useCallback(
-    (deleted: Edge[]) => {
-      for (const edge of deleted) sendOp({ op: 'delete_edge', id: edge.id });
-    },
-    [sendOp],
-  );
-
-  const onNodeDoubleClick = useCallback(
-    (_: unknown, node: Node) => {
-      const label = window.prompt('Label', String(node.data.label ?? ''));
-      if (label != null && label.trim()) {
-        sendOp({ op: 'update_node', id: node.id, label: label.trim() });
+      // Two live editable views of one graph would each fight the other's pushes, and the
+      // trail would stop meaning anything.
+      if (name === diagram) {
+        setError(`"${name}" is the diagram you are already in — open a different one.`);
+        return;
       }
+      if (trail.some((step) => step.diagram === name)) {
+        setError(`"${name}" is already open further up this trail.`);
+        return;
+      }
+
+      if (!graphs[name] && !(await loadDiagram(name))) return;
+
+      setError(null);
+      setTrail((prev) => [...prev, { nodeId: node.id, label: node.label, diagram: name!, anchor }]);
     },
-    [sendOp],
+    [diagram, trail, graphs, loadDiagram, sendOp, setError],
+  );
+
+  // Lensing from the main canvas starts a fresh trail; lensing inside the panel extends it.
+  const onLensFromMain = useCallback(
+    (node: { id: string; label: string; subcanvas?: string }) => {
+      if (!diagram) return;
+      setTrail([]);
+      void openLens(node, diagram);
+    },
+    [diagram, openLens],
+  );
+
+  const onLensFromPanel = useCallback(
+    (node: { id: string; label: string; subcanvas?: string }) => {
+      const current = trail[trail.length - 1];
+      if (current) void openLens(node, current.diagram);
+    },
+    [trail, openLens],
   );
 
   // Colour applies to the selection, so colouring three nodes emits three narrow ops —
-  // the same shape as a multi-node drag. No optimistic update: the server push is what
-  // makes it real, like every other mutation here.
-  const selectedIds = nodes.filter((node) => node.selected).map((node) => node.id);
-
+  // the same shape as a multi-node drag.
   const applyColor = useCallback(
-    (color: ColorInput, ids: string[]) => {
-      for (const id of ids) sendOp({ op: 'update_node', id, color });
+    (color: ColorInput) => {
+      for (const id of selection.ids) {
+        sendOp({ op: 'update_node', id, color }, selection.diagram || undefined);
+      }
     },
-    [sendOp],
+    [selection, sendOp],
   );
-
-  // A switch replaces every node, so anything remembered about the old diagram is stale:
-  // a mid-drag guard would strand a node id that no longer exists, and the viewport would
-  // still be framing the graph we just left.
-  useEffect(() => {
-    if (!diagram) return;
-    dragging.current.clear();
-    // Wait for the new nodes to have been measured, or fitView frames nothing.
-    const timer = setTimeout(() => fitView({ duration: 200 }), 60);
-    return () => clearTimeout(timer);
-  }, [diagram, fitView]);
 
   const onCreateDiagram = useCallback(() => {
     const name = window.prompt('New diagram name');
@@ -232,30 +133,7 @@ function Canvas() {
     event.dataTransfer.effectAllowed = 'copy';
   }, []);
 
-  const onDragOver = useCallback((event: React.DragEvent) => {
-    if (!event.dataTransfer.types.includes(DRAG_TYPE)) return;
-    // Without preventDefault the browser refuses the drop and no drop event fires.
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'copy';
-  }, []);
-
-  const onDrop = useCallback(
-    (event: React.DragEvent) => {
-      if (!event.dataTransfer.types.includes(DRAG_TYPE)) return;
-      event.preventDefault();
-
-      const label = window.prompt('New node label');
-      // Cancelled prompt means no node — better than littering the canvas with
-      // unnamed boxes someone has to go back and rename.
-      if (!label?.trim()) return;
-
-      // Screen pixels are meaningless to the graph: convert through the current pan
-      // and zoom so the node lands where it was dropped, not where the viewport is.
-      const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
-      sendOp({ op: 'add_node_at', label: label.trim(), position });
-    },
-    [screenToFlowPosition, sendOp],
-  );
+  const current = trail[trail.length - 1];
 
   return (
     <div className="app">
@@ -267,7 +145,10 @@ function Canvas() {
           className="diagram-switcher"
           aria-label="Active diagram"
           value={diagram ?? ''}
-          onChange={(event) => void switchDiagram(event.target.value)}
+          onChange={(event) => {
+            closePanel();
+            void switchDiagram(event.target.value);
+          }}
           disabled={diagrams.length === 0}
         >
           {diagrams.map((option) => (
@@ -307,7 +188,7 @@ function Canvas() {
               className={`swatch cp-swatch-${color}`}
               aria-label={color}
               disabled={selectedIds.length === 0}
-              onClick={() => applyColor(color, selectedIds)}
+              onClick={() => applyColor(color)}
             />
           ))}
           <button
@@ -315,7 +196,7 @@ function Canvas() {
             className="swatch swatch-clear"
             aria-label="no colour"
             disabled={selectedIds.length === 0}
-            onClick={() => applyColor('none', selectedIds)}
+            onClick={() => applyColor('none')}
           >
             ×
           </button>
@@ -329,34 +210,49 @@ function Canvas() {
         </span>
       </header>
 
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        edgeTypes={edgeTypes}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onNodeDragStart={onNodeDragStart}
-        onNodeDragStop={onNodeDragStop}
-        onConnect={onConnect}
-        onReconnect={onReconnect}
-        // Default is 10px, which makes the endpoint fiddly to grab on a curved edge.
-        reconnectRadius={20}
-        // Defaults to Backspace alone, so Delete — what most full keyboards offer —
-        // silently did nothing.
-        deleteKeyCode={['Backspace', 'Delete']}
-        onNodesDelete={onNodesDelete}
-        onEdgesDelete={onEdgesDelete}
-        onNodeDoubleClick={onNodeDoubleClick}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
-        snapToGrid
-        snapGrid={[15, 15]}
-        fitView
-      >
-        <Background gap={15} />
-        <MiniMap pannable />
-        <Controls />
-      </ReactFlow>
+      <div className="canvas-area">
+        {diagram && (
+          <GraphCanvas
+            graph={graph}
+            diagram={diagram}
+            sendOp={sendOp}
+            onLens={onLensFromMain}
+            onSelectionChange={(ids) => setSelection({ diagram, ids })}
+          />
+        )}
+
+        {current && (
+          <SubcanvasPanel
+            trail={trail}
+            graph={graphs[current.diagram] ?? null}
+            sendOp={sendOp}
+            onLens={onLensFromPanel}
+            onSelectionChange={(ids) => setSelection({ diagram: current.diagram, ids })}
+            onBack={(depth) => setTrail((prev) => prev.slice(0, depth))}
+            onClose={closePanel}
+          />
+        )}
+      </div>
     </div>
   );
 }
+
+/**
+ * Where to anchor the panel: beside the node whose badge was clicked.
+ *
+ * Read from the DOM rather than from graph coordinates because the panel is positioned in
+ * screen pixels, and converting would have to account for the current pan and zoom.
+ */
+function lensAnchor(nodeId: string): { x: number; y: number } {
+  const el = document.querySelector(`.react-flow__node[data-id="${nodeId}"]`);
+  const box = el?.getBoundingClientRect();
+  if (!box) return { x: 120, y: 120 };
+  return { x: box.right, y: box.top };
+}
+
+const slug = (label: string) =>
+  label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32);
