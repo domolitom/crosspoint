@@ -21,6 +21,8 @@ let child: ChildProcess;
 let dir: string;
 let graphPath: string;
 
+const readGraphFile = async () => JSON.parse(await readFile(graphPath, 'utf8'));
+
 const api = async (path: string, init?: RequestInit) => {
   const res = await fetch(`${BASE}${path}`, init);
   return { status: res.status, body: (await res.json()) as any };
@@ -200,6 +202,48 @@ test('the watermark also survives a restart', async () => {
     body.entries.every((e: any) => e.kind === 'external' || e.rev > 5),
     'a restart does not resurrect already-consumed history',
   );
+});
+
+// Colour is structural, so unlike a move it must survive the default filter — a red node
+// is a message, and dropping it as noise would lose the message.
+test('a colour change reaches the feed even with the layout filter on', async () => {
+  await op({ op: 'add_node', label: 'Broken' });
+  const base = (await api('/api/graph')).body.rev;
+
+  await op({ op: 'move_node', id: 'broken', position: { x: 300, y: 300 } });
+  await op({ op: 'update_node', id: 'broken', color: 'red' });
+
+  const { body } = await api(`/api/changes?since=${base}`);
+  assert.deepEqual(
+    body.entries.map((e: any) => e.op.op),
+    ['update_node'],
+    'the colour survives, the move does not',
+  );
+  assert.equal(body.entries[0].kind, 'structural');
+  assert.match(body.summary, /coloured red/);
+});
+
+test('a colour round-trips to disk and clears cleanly', async () => {
+  const graph = await until('colour to reach disk', async () => {
+    const g = await readGraphFile();
+    const node = g.nodes.find((n: any) => n.id === 'broken');
+    return node?.data?.color === 'red' ? g : null;
+  });
+  assert.equal(graph.nodes.find((n: any) => n.id === 'broken').data.color, 'red');
+
+  await op({ op: 'update_node', id: 'broken', color: 'none' });
+  const cleared = await until('colour to clear on disk', async () => {
+    const g = await readGraphFile();
+    const node = g.nodes.find((n: any) => n.id === 'broken');
+    return node && !('color' in node.data) ? g : null;
+  });
+  assert.ok(!JSON.stringify(cleared).includes('"none"'), 'no sentinel written to the file');
+});
+
+test('an unknown colour is refused at the API boundary', async () => {
+  const { status, body } = await op({ op: 'update_node', id: 'broken', color: 'crimsonish' });
+  assert.equal(status, 400);
+  assert.match(body.error, /Unknown colour/);
 });
 
 test('repositioning is left out of the feed unless asked for', async () => {

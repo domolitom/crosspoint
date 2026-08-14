@@ -39,6 +39,18 @@ const applyOp = (op: Record<string, unknown>) =>
     body: JSON.stringify({ op }),
   });
 
+/**
+ * Colour is meaning, not decoration — it is the one presentational thing on the agent
+ * surface, and it earns its place because a coloured node is usually a statement.
+ */
+const colorSchema = z
+  .enum(['slate', 'amber', 'red', 'green', 'blue', 'violet', 'none'])
+  .describe(
+    'Colour the node, by name. Use it to say something — amber for "needs attention", ' +
+      'red for "broken", green for "done" — not to decorate. Pass "none" to clear it. ' +
+      'The human sees the same six colours in their palette, so this is shared vocabulary.',
+  );
+
 const ok = (payload: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
 });
@@ -123,9 +135,10 @@ server.registerTool(
         .string()
         .optional()
         .describe('Id of an existing node to place this one beneath.'),
+      color: colorSchema.optional(),
     },
   },
-  async ({ label, near }) => ok(await applyOp({ op: 'add_node', label, near })),
+  async ({ label, near, color }) => ok(await applyOp({ op: 'add_node', label, near, color })),
 );
 
 server.registerTool(
@@ -168,14 +181,16 @@ server.registerTool(
   {
     title: 'Update node',
     description:
-      "Change a node's label. Its position is untouched — relabelling never moves a node " +
-      'the human has placed.',
+      "Change a node's label, its colour, or both. Its position is untouched — neither " +
+      'relabelling nor recolouring moves a node the human has placed. Pass whichever ' +
+      'fields you want to change; omitting one leaves it alone.',
     inputSchema: {
       id: z.string().describe('Id of the node to change.'),
-      label: z.string().min(1).describe('New label text.'),
+      label: z.string().min(1).optional().describe('New label text. Omit to keep the current one.'),
+      color: colorSchema.optional(),
     },
   },
-  async ({ id, label }) => ok(await applyOp({ op: 'update_node', id, label })),
+  async ({ id, label, color }) => ok(await applyOp({ op: 'update_node', id, label, color })),
 );
 
 server.registerTool(
