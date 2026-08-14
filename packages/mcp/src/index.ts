@@ -277,4 +277,65 @@ server.registerTool(
   async ({ id }) => ok(await applyOp({ op: 'delete_edge', id })),
 );
 
+/**
+ * Diagram management is not an op: it changes nothing inside a diagram, so it carries no
+ * rev and never appears in the change feed.
+ */
+server.registerTool(
+  'list_diagrams',
+  {
+    title: 'List diagrams',
+    description:
+      'List every diagram in the workspace with its node and edge counts, and say which ' +
+      'one is active. The active one is what the human is looking at and what every ' +
+      'other tool here reads and writes.',
+    inputSchema: {},
+  },
+  async () => ok(await call('/api/diagrams')),
+);
+
+server.registerTool(
+  'create_diagram',
+  {
+    title: 'Create diagram',
+    description:
+      'Create a new, empty diagram. It does NOT become active — the human keeps looking ' +
+      'at whatever they were looking at, so call switch_diagram if you want them to see ' +
+      'it. Names become filenames: letters, digits, dot, dash and underscore only.',
+    inputSchema: {
+      name: z.string().min(1).describe('Name for the new diagram, e.g. "auth-flow".'),
+    },
+  },
+  async ({ name }) =>
+    ok(
+      await call('/api/diagrams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      }),
+    ),
+);
+
+server.registerTool(
+  'switch_diagram',
+  {
+    title: 'Switch diagram',
+    description:
+      'Make a diagram the active one. This is not a private read: it changes what is on ' +
+      'the human\'s screen, so switch because they asked to see something else, not to ' +
+      'go and look at something yourself. Every other tool then operates on this diagram.',
+    inputSchema: {
+      name: z.string().min(1).describe('Name of an existing diagram; see list_diagrams.'),
+    },
+  },
+  async ({ name }) =>
+    ok(
+      await call('/api/diagrams/active', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      }),
+    ),
+);
+
 await server.connect(new StdioServerTransport());
