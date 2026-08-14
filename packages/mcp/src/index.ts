@@ -32,12 +32,26 @@ async function call(path: string, init?: RequestInit) {
   return body;
 }
 
-const applyOp = (op: Record<string, unknown>) =>
+/**
+ * `diagram` writes somewhere other than what the human is looking at.
+ *
+ * That is what makes detailing a step non-disruptive: the sub-plan is built in its own
+ * diagram while their canvas stays exactly where it was.
+ */
+const applyOp = (op: Record<string, unknown>, diagram?: string) =>
   call('/api/op', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ op }),
+    body: JSON.stringify(diagram ? { op, diagram } : { op }),
   });
+
+const diagramParam = z
+  .string()
+  .optional()
+  .describe(
+    'Diagram to act on. Defaults to the one the human is looking at. Naming one writes ' +
+      'there WITHOUT moving their view — this is how you fill in a subcanvas.',
+  );
 
 /**
  * Colour is meaning, not decoration — it is the one presentational thing on the agent
@@ -63,16 +77,25 @@ server.registerTool(
       'Read the diagram as structure: nodes with their ids and labels, and the edges ' +
       'between them. Node coordinates are omitted by default because they carry no ' +
       'meaning for reasoning about the diagram. Pass include_positions only if you ' +
-      'genuinely need geometry (for example to report where something sits on screen).',
+      'genuinely need geometry (for example to report where something sits on screen).\n\n' +
+      'A node with a `subcanvas` field has its own diagram behind it holding its detail — ' +
+      'pass that name as `diagram` here to read it.',
     inputSchema: {
       include_positions: z
         .boolean()
         .optional()
         .describe('Include x/y coordinates. Rarely needed; defaults to false.'),
+      diagram: z
+        .string()
+        .optional()
+        .describe('Diagram to read. Defaults to the active one. Reading never switches views.'),
     },
   },
-  async ({ include_positions }) =>
-    ok(await call(include_positions ? '/api/graph' : '/api/graph/structural')),
+  async ({ include_positions, diagram }) => {
+    const base = include_positions ? '/api/graph' : '/api/graph/structural';
+    const query = diagram ? `?diagram=${encodeURIComponent(diagram)}` : '';
+    return ok(await call(`${base}${query}`));
+  },
 );
 
 server.registerTool(
@@ -186,10 +209,11 @@ server.registerTool(
         .boolean()
         .optional()
         .describe('Discard the existing diagram. Required if it has any nodes.'),
+      diagram: diagramParam,
     },
   },
-  async ({ nodes, edges, replace }) =>
-    ok(await applyOp({ op: 'generate_graph', nodes, edges, replace })),
+  async ({ nodes, edges, replace, diagram }) =>
+    ok(await applyOp({ op: 'generate_graph', nodes, edges, replace }, diagram)),
 );
 
 server.registerTool(
@@ -239,9 +263,19 @@ server.registerTool(
       id: z.string().describe('Id of the node to change.'),
       label: z.string().min(1).optional().describe('New label text. Omit to keep the current one.'),
       color: colorSchema.optional(),
+      subcanvas: z
+        .string()
+        .optional()
+        .describe(
+          'Name of a diagram holding this node\'s detail. Prefer create_subdiagram, which ' +
+            'makes the diagram and links it in one step. Pass "none" to unlink without ' +
+            'deleting the diagram.',
+        ),
+      diagram: diagramParam,
     },
   },
-  async ({ id, label, color }) => ok(await applyOp({ op: 'update_node', id, label, color })),
+  async ({ id, label, color, subcanvas, diagram }) =>
+    ok(await applyOp({ op: 'update_node', id, label, color, subcanvas }, diagram)),
 );
 
 server.registerTool(
@@ -393,6 +427,50 @@ server.registerTool(
         body: JSON.stringify({ name }),
       }),
     ),
+);
+
+server.registerTool(
+  'create_subdiagram',
+  {
+    title: 'Create subcanvas',
+    description:
+      "Give a node its own diagram, holding that node's detail — the sub-plan behind a " +
+      'plan step, or the control flow inside one box. It creates the diagram and links ' +
+      'the node in one call.\n\n' +
+      'The human sees a lens badge on that node and can open it in a panel beside it. ' +
+      'This does NOT move their view, and neither does filling it in: follow up with ' +
+      'generate_graph passing the returned diagram name, and the detail appears behind ' +
+      'the badge without their canvas moving.\n\n' +
+      'Deleting the node later leaves this diagram intact rather than destroying it, so ' +
+      'an accidental delete cannot throw away the work inside.',
+    inputSchema: {
+      node_id: z.string().describe('Id of the node to give a subcanvas to.'),
+      name: z
+        .string()
+        .optional()
+        .describe('Name for the new diagram. Defaults to "<node id>-detail".'),
+      diagram: z
+        .string()
+        .optional()
+        .describe('Diagram the node lives in. Defaults to the active one.'),
+    },
+  },
+  async ({ node_id, name, diagram }) => {
+    const subcanvas = name ?? `${node_id}-detail`;
+    // Adopting a diagram that already exists is reasonable — linking a node to detail
+    // written earlier is a real thing to want — so only a different failure is fatal.
+    try {
+      await call('/api/diagrams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: subcanvas }),
+      });
+    } catch (err) {
+      if (!/already exists/i.test((err as Error).message)) throw err;
+    }
+    const linked = await applyOp({ op: 'update_node', id: node_id, subcanvas }, diagram);
+    return ok({ subcanvas, ...(linked as Record<string, unknown>) });
+  },
 );
 
 await server.connect(new StdioServerTransport());
