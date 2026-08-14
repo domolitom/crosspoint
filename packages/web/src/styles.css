@@ -156,3 +156,94 @@ body,
   overflow-wrap: anywhere;
   white-space: normal;
 }
+
+/*
+ * The only place the actual colour values live. The graph stores names, so a reader —
+ * human or agent — sees "amber" rather than a hex value that means nothing to them.
+ *
+ * Pale fill against a saturated border, with the node's own dark text left alone: white
+ * text on these fills would be unreadable.
+ */
+.react-flow__node.cp-color-slate {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+.react-flow__node.cp-color-amber {
+  background: #fef3c7;
+  border-color: #d97706;
+}
+.react-flow__node.cp-color-red {
+  background: #fee2e2;
+  border-color: #dc2626;
+}
+.react-flow__node.cp-color-green {
+  background: #dcfce7;
+  border-color: #16a34a;
+}
+.react-flow__node.cp-color-blue {
+  background: #dbeafe;
+  border-color: #2563eb;
+}
+.react-flow__node.cp-color-violet {
+  background: #ede9fe;
+  border-color: #7c3aed;
+}
+
+.colours {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/*
+ * Scoped under `.bar` deliberately. `.bar button` is (0,1,1) and would otherwise win over
+ * a bare `.swatch` at (0,1,0), which rendered every swatch as a grey pill with no colour
+ * and no round shape. Two classes beats a class plus an element.
+ */
+.bar .swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #cbd2dc;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  color: #6b7280;
+  background: #fff;
+}
+
+.bar .swatch:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.bar .swatch:not(:disabled):hover {
+  outline: 2px solid #cbd2dc;
+  outline-offset: 1px;
+}
+
+.bar .cp-swatch-slate {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+.bar .cp-swatch-amber {
+  background: #fef3c7;
+  border-color: #d97706;
+}
+.bar .cp-swatch-red {
+  background: #fee2e2;
+  border-color: #dc2626;
+}
+.bar .cp-swatch-green {
+  background: #dcfce7;
+  border-color: #16a34a;
+}
+.bar .cp-swatch-blue {
+  background: #dbeafe;
+  border-color: #2563eb;
+}
+.bar .cp-swatch-violet {
+  background: #ede9fe;
+  border-color: #7c3aed;
+}

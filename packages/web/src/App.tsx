@@ -15,6 +15,7 @@ import {
   type NodeChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { NODE_COLORS, type ColorInput, type NodeColor } from '@crosspoint/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { DirectedEdge } from './DirectedEdge';
@@ -58,10 +59,15 @@ function Canvas() {
           local && dragging.current.has(node.id)
             ? local.position
             : (node.position ?? { x: 0, y: 0 });
+        // Spread the whole data bag rather than picking out the label: anything else the
+        // node carries — colour today, code references later — would otherwise be dropped
+        // on every server push and silently vanish from the canvas.
+        const color = node.data.color as NodeColor | undefined;
         return {
           id: node.id,
           position,
-          data: { label: String(node.data.label ?? node.id) },
+          data: { ...node.data, label: String(node.data.label ?? node.id) },
+          className: color ? `cp-color-${color}` : undefined,
           selected: local?.selected,
         };
       });
@@ -192,6 +198,18 @@ function Canvas() {
     [sendOp],
   );
 
+  // Colour applies to the selection, so colouring three nodes emits three narrow ops —
+  // the same shape as a multi-node drag. No optimistic update: the server push is what
+  // makes it real, like every other mutation here.
+  const selectedIds = nodes.filter((node) => node.selected).map((node) => node.id);
+
+  const applyColor = useCallback(
+    (color: ColorInput, ids: string[]) => {
+      for (const id of ids) sendOp({ op: 'update_node', id, color });
+    },
+    [sendOp],
+  );
+
   const onPaletteDragStart = useCallback((event: React.DragEvent) => {
     event.dataTransfer.setData(DRAG_TYPE, 'node');
     event.dataTransfer.effectAllowed = 'copy';
@@ -235,6 +253,38 @@ function Canvas() {
           Node
         </div>
         <span className="palette-hint">drag onto the canvas</span>
+
+        <div
+          className="colours"
+          role="group"
+          aria-label="Node colour"
+          title={
+            selectedIds.length
+              ? `Colour ${selectedIds.length} selected node${selectedIds.length > 1 ? 's' : ''}`
+              : 'Select a node first'
+          }
+        >
+          {NODE_COLORS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              className={`swatch cp-swatch-${color}`}
+              aria-label={color}
+              disabled={selectedIds.length === 0}
+              onClick={() => applyColor(color, selectedIds)}
+            />
+          ))}
+          <button
+            type="button"
+            className="swatch swatch-clear"
+            aria-label="no colour"
+            disabled={selectedIds.length === 0}
+            onClick={() => applyColor('none', selectedIds)}
+          >
+            ×
+          </button>
+        </div>
+
         <span className="spacer" />
         {error && <span className="error">{error}</span>}
         <span className="rev">rev {graph?.rev ?? '—'}</span>
