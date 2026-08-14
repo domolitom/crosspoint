@@ -23,6 +23,10 @@ const KNOWN_OPS = new Set([
   'delete_node',
   'delete_edge',
   'generate_graph',
+  // Layout intent, resolved server-side. On the agent surface because they carry no
+  // coordinate; tagged `layout` in the feed because they only move boxes.
+  'align',
+  'distribute',
   'move_node',
 ]);
 

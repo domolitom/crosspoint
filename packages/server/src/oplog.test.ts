@@ -341,3 +341,64 @@ test('generating over a non-empty diagram is refused at the API boundary', async
   const { body: graph } = await api('/api/graph');
   assert.deepEqual(graph.nodes.map((n: any) => n.id), ['only'], 'nothing was discarded');
 });
+
+// The two halves of the semantic-layout design, through the real API. An `align` an agent
+// cannot issue is useless; one that shows up in the feed buries the message.
+test('align is accepted from the agent surface yet filtered from the feed', async () => {
+  await op({ op: 'add_node', label: 'Left one' });
+  await op({ op: 'add_node', label: 'Left two' });
+  await op({ op: 'move_node', id: 'left-one', position: { x: 90, y: 0 } });
+  await op({ op: 'move_node', id: 'left-two', position: { x: 300, y: 150 } });
+  await api('/api/changes'); // drain
+
+  const { status } = await op({ op: 'align', ids: ['left-one', 'left-two'], edge: 'left' });
+  assert.equal(status, 200, 'the API accepts it — it carries no coordinate');
+
+  const graph = await until('the alignment to reach disk', async () => {
+    const g = await readGraphFile();
+    const a = g.nodes.find((n: any) => n.id === 'left-one');
+    const b = g.nodes.find((n: any) => n.id === 'left-two');
+    // Both must exist first: comparing two undefined x values succeeds vacuously and
+    // would let this poll return before anything had reached disk.
+    if (!a?.position || !b?.position) return null;
+    return a.position.x === b.position.x ? g : null;
+  });
+  assert.equal(
+    graph.nodes.find((n: any) => n.id === 'left-one').position.x,
+    graph.nodes.find((n: any) => n.id === 'left-two').position.x,
+    'and it actually aligned them',
+  );
+
+  const { body: plain } = await api('/api/changes?since=0');
+  assert.ok(
+    !plain.entries.some((e: any) => e.op.op === 'align'),
+    'but the default feed treats it as noise, like any other repositioning',
+  );
+
+  const { body: full } = await api('/api/changes?since=0&include_layout=true');
+  const entry = full.entries.find((e: any) => e.op.op === 'align');
+  assert.ok(entry, 'it is still on the record when layout is asked for');
+  assert.equal(entry.kind, 'layout');
+  assert.match(full.summary, /aligned 2 nodes on their left edges/);
+});
+
+test('a node dropped on the canvas is NOT filtered out of the feed', async () => {
+  await api('/api/changes'); // drain
+  await op({ op: 'add_node_at', label: 'Dropped here', position: { x: 600, y: 600 } });
+
+  const { body } = await api('/api/changes');
+  assert.ok(
+    body.entries.some((e: any) => e.op.op === 'add_node_at'),
+    'creating a node is always part of the message, coordinate or not',
+  );
+});
+
+test('align refuses ids it cannot use', async () => {
+  const ghost = await op({ op: 'align', ids: ['left-one', 'ghost'], edge: 'left' });
+  assert.equal(ghost.status, 400);
+  assert.match(ghost.body.error, /No node with id "ghost"/);
+
+  const lonely = await op({ op: 'align', ids: ['left-one'], edge: 'left' });
+  assert.equal(lonely.status, 400);
+  assert.match(lonely.body.error, /at least two nodes/);
+});
