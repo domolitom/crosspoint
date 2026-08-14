@@ -1,3 +1,6 @@
+import { GraphError } from './errors.js';
+import { generateGraph } from './generate.js';
+import { slugify, uniqueId } from './ids.js';
 import { placeNode, snapPosition } from './placement.js';
 import {
   NODE_COLORS,
@@ -10,7 +13,7 @@ import {
   type PlacedNode,
 } from './types.js';
 
-export class GraphError extends Error {}
+export { GraphError } from './errors.js';
 
 /**
  * Reject an unknown colour rather than storing it.
@@ -42,24 +45,6 @@ function mergeNodeData(
   if (change.color === 'none') delete data.color;
   else if (change.color !== undefined) data.color = change.color;
   return data;
-}
-
-/** Slugify a label into a readable, stable id — ids an agent can reason about. */
-function slugify(label: string): string {
-  const slug = label
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
-  return slug || 'node';
-}
-
-function uniqueId(base: string, taken: Set<string>): string {
-  if (!taken.has(base)) return base;
-  for (let i = 2; ; i++) {
-    const candidate = `${base}-${i}`;
-    if (!taken.has(candidate)) return candidate;
-  }
 }
 
 /**
@@ -188,6 +173,26 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
         throw new GraphError(`No edge with id "${op.id}"`);
       }
       return { ...next, edges: graph.edges.filter((e) => e.id !== op.id) };
+    }
+
+    case 'generate_graph': {
+      for (const node of op.nodes) requireColor(node.color);
+
+      // Checked before any work, and `applyOp` is pure, so a refusal cannot leave the
+      // diagram half-replaced. The count is in the message because the whole reason this
+      // guard exists is to stop a sub-plan vanishing by accident — a reader needs to know
+      // how much they are about to discard.
+      if (!op.replace && graph.nodes.length > 0) {
+        throw new GraphError(
+          `Diagram has ${graph.nodes.length} nodes. Pass replace: true to discard them, ` +
+            'or generate into a different diagram.',
+        );
+      }
+
+      const { nodes, edges } = generateGraph(op.nodes, op.edges);
+      // One rev for the whole graph, however large. Forty separate add_node calls would
+      // burn forty revs and forty file writes, and the canvas would flail through them.
+      return { ...next, nodes, edges };
     }
 
     case 'add_node_at': {

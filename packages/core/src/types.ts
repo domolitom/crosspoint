@@ -61,6 +61,22 @@ export type PlacedNode = GraphNode & { position: Position };
 
 export const emptyGraph = (): Graph => ({ rev: 0, nodes: [], edges: [] });
 
+/** A node in a `generate_graph` payload. Carries no position — that is the point. */
+export interface GeneratedNode {
+  label: string;
+  /** Defaults to the slugified label. Supply one when two nodes share a label. */
+  id?: string;
+  color?: ColorInput;
+  data?: Record<string, unknown>;
+}
+
+/** An edge in a `generate_graph` payload, referring to nodes by their resolved ids. */
+export interface GeneratedEdge {
+  source: string;
+  target: string;
+  label?: string;
+}
+
 /**
  * Mutations, split by who is allowed to issue them.
  *
@@ -91,7 +107,23 @@ export type StructuralOp =
     }
   | { op: 'update_edge'; id: string; label?: string }
   | { op: 'delete_node'; id: string }
-  | { op: 'delete_edge'; id: string };
+  | { op: 'delete_edge'; id: string }
+  /**
+   * Build a whole diagram in one op.
+   *
+   * Structural despite producing positions, and the distinction is the whole point: the
+   * issuer supplies nodes, edges and labels, and the *server* runs the layout engine.
+   * No coordinate crosses the boundary, so this is the "semantic intent, server resolves
+   * geometry" escape hatch rather than a hole in the invariant — the same shape as an
+   * `align` op.
+   */
+  | {
+      op: 'generate_graph';
+      nodes: GeneratedNode[];
+      edges: GeneratedEdge[];
+      /** Required to discard an existing diagram; without it a non-empty one is refused. */
+      replace?: boolean;
+    };
 
 /**
  * Layout ops carry coordinates. Issued by the canvas only — never exposed over MCP.

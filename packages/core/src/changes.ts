@@ -58,6 +58,7 @@ export const kindOf = (op: LoggedOp): ChangeKind =>
   op.op === 'external_edit' ? 'external' : isLayoutOp(op) ? 'layout' : 'structural';
 
 const quote = (s: string) => `"${s}"`;
+const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
 /** One readable line per op. This is what actually gets read, so it earns its keep. */
 export function describeOp(op: LoggedOp): string {
@@ -90,6 +91,12 @@ export function describeOp(op: LoggedOp): string {
       return `− node ${op.id}`;
     case 'delete_edge':
       return `− edge ${op.id}`;
+    case 'generate_graph': {
+      const shape = `generated ${count(op.nodes.length, 'node')}, ${count(op.edges.length, 'edge')}`;
+      // A reader must be told the diagram was wiped. Everything they knew about it is
+      // gone, and that is not inferable from a node count.
+      return op.replace ? `${shape}, replacing what was there` : shape;
+    }
     case 'move_node':
       return `moved ${op.id}`;
     case 'external_edit':
