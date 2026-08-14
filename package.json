@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "npm run build -w @crosspoint/core && CROSSPOINT_GRAPH=\"$PWD/graph.json\" concurrently -n server,web -c blue,green \"npm run dev -w @crosspoint/server\" \"npm run dev -w @crosspoint/web\"",
     "build": "npm run build -w @crosspoint/core && npm run build -w @crosspoint/server && npm run build -w @crosspoint/mcp && npm run build -w @crosspoint/web",
-    "test": "npm run test -w @crosspoint/core && npm run test -w @crosspoint/server",
+    "test": "npm run test -w @crosspoint/core && npm run test -w @crosspoint/server && npm run test -w @crosspoint/e2e",
     "typecheck": "tsc --build"
   },
   "devDependencies": {
