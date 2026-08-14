@@ -58,7 +58,10 @@ const server = createServer(async (req, res) => {
       const entries =
         url.searchParams.get('include_layout') === 'true' ? all : withoutLayout(all);
       return json(res, 200, {
-        rev: store.current().rev,
+        // The workspace rev, not the active diagram's. The feed spans every diagram and
+        // `since` is measured against the same counter, so reporting one diagram's
+        // last-write rev here would be answering a different question.
+        rev: store.rev,
         watermark: store.log.watermark,
         summary: summarise(entries),
         entries,
