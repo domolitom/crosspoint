@@ -109,11 +109,31 @@ No optimistic updates in the canvas. `onConnect` and `onReconnect` send the op a
 the push, because the server assigns the id — a locally invented one renders a duplicate that
 is immediately replaced.
 
+### `rev` counts the workspace, not the diagram
+
+One monotonic counter spans every diagram. That is not incidental: `get_changes` is a flat
+chronological feed across diagrams, and two diagrams that both reached "rev 5" give it no
+total order to sort by. There is likewise **one** op log and **one** watermark for the
+workspace — independently-numbered logs cannot be merged into a total order either.
+
+The consequence that reads like a bug and is not: a diagram file's stored `rev` means *the
+workspace rev at which this file was last written*, so it legitimately trails the counter
+when the most recent ops went to a different diagram. `/api/graph` reports that per-diagram
+rev, because it is what a stale-write check must compare against. `/api/changes` reports the
+workspace rev, because `since` is measured against the same counter. Reporting the diagram's
+rev there was a real inconsistency, caught by the interleaving test.
+
 ## Traps, each paid for with a real bug
 
 **File watching must watch the directory, not the file.** Atomic saves replace the file by
 rename, which swaps the inode; a file-level watch is bound to the old one and goes silent
 after the first write, including the server's own.
+
+**In single-file mode the workspace directory must not be scanned.** Pointing the server at
+`graph.json` puts the workspace in the repo root, where a `*.json` scan happily adopts
+`package.json` and `tsconfig.json` as diagrams. Sidecars are a hazard even in a real diagram
+directory, since `*.state.json` is also `.json`. File mode takes its diagram list from state
+instead of the filesystem.
 
 **`node --test <dir>/` reports success on zero matches.** It silently passed a suite that
 found no test files at all. Always use the `dist/*.test.js` glob.
