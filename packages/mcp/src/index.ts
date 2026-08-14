@@ -278,6 +278,63 @@ server.registerTool(
 );
 
 /**
+ * The escape hatch in the coordinates invariant.
+ *
+ * These are the only tools here that move anything, and they are allowed because they name
+ * intent rather than geometry — the server computes the pixels. Note they are still tagged
+ * as repositioning in the change feed, so using one does not clutter what the human's next
+ * `get_changes` reports.
+ */
+const TIDY_CAVEAT =
+  ' Only tidy when asked. Rearranging someone\'s diagram because you think it looks ' +
+  'untidy is exactly the kind of unrequested change the layout rules here exist to prevent.';
+
+server.registerTool(
+  'align',
+  {
+    title: 'Align nodes',
+    description:
+      'Line up two or more nodes on a shared edge or centre line. You do not compute the ' +
+      'positions — name the intent and the server resolves it, using each node\'s real ' +
+      'size so wide and narrow boxes centre correctly. Nodes you do not list never move. ' +
+      'Ids come from get_graph.' +
+      TIDY_CAVEAT,
+    inputSchema: {
+      ids: z
+        .array(z.string())
+        .min(2)
+        .describe('Ids of the nodes to line up. At least two — aligning one means nothing.'),
+      edge: z
+        .enum(['left', 'right', 'top', 'bottom', 'center-x', 'center-y'])
+        .describe(
+          'Which edge to share: left/right/top/bottom, or center-x to share a vertical ' +
+            'centre line and center-y a horizontal one.',
+        ),
+    },
+  },
+  async ({ ids, edge }) => ok(await applyOp({ op: 'align', ids, edge })),
+);
+
+server.registerTool(
+  'distribute',
+  {
+    title: 'Distribute nodes',
+    description:
+      'Space three or more nodes evenly. The outermost two stay where they are and define ' +
+      'the span; the rest are placed so the gaps between boxes are equal, accounting for ' +
+      'differing widths. Nodes you do not list never move.' +
+      TIDY_CAVEAT,
+    inputSchema: {
+      ids: z.array(z.string()).min(2).describe('Ids of the nodes to space out.'),
+      axis: z
+        .enum(['horizontal', 'vertical'])
+        .describe('Spread them left-to-right (horizontal) or top-to-bottom (vertical).'),
+    },
+  },
+  async ({ ids, axis }) => ok(await applyOp({ op: 'distribute', ids, axis })),
+);
+
+/**
  * Diagram management is not an op: it changes nothing inside a diagram, so it carries no
  * rev and never appears in the change feed.
  */
