@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 
 import {
+  API,
   dragMouse,
   nodeCentre,
   openCanvas,
@@ -425,4 +426,51 @@ test('nodes size themselves to their label, within the clamp', async () => {
   );
   assert.ok(shortWidth >= 120, `short node should respect the 120px floor, got ${shortWidth}`);
   assert.ok(longWidth <= 320, `long node should respect the 320px cap, got ${longWidth}`);
+});
+
+// Which diagram is active is server state, and hidden state is the cost the switcher was
+// added to pay back — so what matters is that it is visible and that using it works.
+test('the switcher lists diagrams and switching changes what is on screen', async () => {
+  const here = await seed('Only in first', 2200, 200);
+
+  const created = await fetch(`${API}/api/diagrams`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'second' }),
+  });
+  assert.equal(created.status, 200, 'creating a second diagram');
+
+  await openCanvas(stack);
+  const switcher = stack.page.locator('.diagram-switcher');
+  await until('the switcher to list both diagrams', async () =>
+    (await switcher.locator('option').count()) >= 2,
+  );
+
+  const names = await switcher.locator('option').evaluateAll((options) =>
+    options.map((option) => (option as HTMLOptionElement).value),
+  );
+  assert.ok(names.includes('second'), `switcher should list the new diagram, got ${names}`);
+
+  // The node from the first diagram must be on screen before we leave it, otherwise its
+  // absence afterwards proves nothing.
+  await until('the first diagram to be rendered', async () =>
+    (await stack.page.locator(`.react-flow__node[data-id="${here}"]`).count()) > 0,
+  );
+
+  await switcher.selectOption('second');
+
+  await until('the canvas to empty out', async () =>
+    (await stack.page.locator('.react-flow__node').count()) === 0,
+  );
+  assert.equal(
+    await stack.page.locator(`.react-flow__node[data-id="${here}"]`).count(),
+    0,
+    'the first diagram’s nodes are gone, not merely hidden',
+  );
+  assert.equal((await stack.graph()).nodes.length, 0, 'and the server agrees on what is active');
+
+  await switcher.selectOption('graph');
+  await until('the first diagram to come back', async () =>
+    (await stack.page.locator(`.react-flow__node[data-id="${here}"]`).count()) > 0,
+  );
 });
