@@ -10,23 +10,25 @@ npm workspaces, TypeScript throughout, Node 22+.
 npm install
 npm run dev                      # core build + server (:4000) + vite canvas (:5173)
 npm run build                    # all four packages
-npm test                         # core unit tests + server end-to-end tests
+npm test                         # core + server + the browser suite
 
-npm run test -w @crosspoint/core     # graph model: ops, placement, serialisation
+npm run test -w @crosspoint/core     # graph model: ops, placement, arrange, serialisation
 npm run test -w @crosspoint/server   # spawns a real server, ws client + HTTP agent
+npm run test -w @crosspoint/e2e      # real browser against a real stack (~13s)
 node --test packages/core/dist/graph.test.js --test-name-pattern "placement"
 ```
 
 Tests compile first (`tsc`) and run against `dist/`, so a single test file is
 `node --test packages/<pkg>/dist/<name>.test.js`.
 
-The server takes the graph path as `argv[2]` or `CROSSPOINT_GRAPH`; port via
-`CROSSPOINT_PORT`. `.mcp.json` wires the MCP server up for Claude Code — it needs
+The server takes a **diagrams directory** as `argv[2]` or `CROSSPOINT_DIAGRAMS`; port via
+`CROSSPOINT_PORT`. Passing a `.json` file instead still works and means "one diagram, named
+after the file" — that is how `npm run dev` keeps an existing `graph.json` live. `.mcp.json` wires the MCP server up for Claude Code — it needs
 `npm run build` to have run, and the main server to be up.
 
-`graph.json` is gitignored on purpose. It is a live document the server rewrites on every
-edit; tracking it turns ordinary use into a dirty working tree. Never `git add` it, and never
-`git add -A` in this repo.
+`graph.json`, `diagrams/`, `*.ops.jsonl` and `*.state.json` are gitignored on purpose. They
+are live documents the server rewrites on every edit; tracking them turns ordinary use into a
+dirty working tree. Never `git add` them, and never `git add -A` in this repo.
 
 ## What Crosspoint is
 
@@ -40,17 +42,21 @@ unambiguous, not for the diagram being beautiful or permanent.
 
 ## Architecture
 
-Four workspaces under `packages/`:
+Five workspaces under `packages/`:
 
-- **`core`** — the graph model. Types, `applyOp`, placement, diff-stable serialisation. Pure
-  and dependency-free; both the server and the canvas import it.
-- **`server`** — owns the graph. HTTP + websocket on :4000, atomic file persistence.
+- **`core`** — the graph model. Types, `applyOp`, placement, `arrange`, dagre generation,
+  diff-stable serialisation. `@dagrejs/dagre` is its one runtime dependency, isolated in
+  `generate.ts`; both the server and the canvas import this package.
+- **`server`** — owns every diagram. `Workspace` holds the directory and the shared op log,
+  `DiagramFile` holds one graph. HTTP + websocket on :4000, atomic file persistence.
 - **`web`** — Vite + React + `@xyflow/react` canvas on :5173, proxying `/api` and `/ws`.
 - **`mcp`** — stdio MCP server, a thin structural client of the HTTP API.
+- **`e2e`** — Playwright against a real stack on its own ports. The layer where every silent
+  bug in this project has lived.
 
-**The server owns state; the file is persistence, not the live source of truth.** This was
+**The server owns state; files are persistence, not the live source of truth.** This was
 chosen over "everyone writes the file, a watcher fans changes out" specifically to avoid
-write-echo loops and half-written reads. The watcher in `store.ts` exists only to pick up
+write-echo loops and half-written reads. The watcher in `workspace.ts` exists only to pick up
 *external* edits, and tells them from its own writes by comparing against the last text it
 wrote.
 
@@ -68,8 +74,8 @@ separate `add_node_at` *layout* op rather than a field on the existing structura
 
 Note this is now framed as a sensible default rather than the project's reason to exist. It
 stops the agent thrashing the user's arrangement mid-thought. Do not let it block genuinely
-useful agent capability; the escape hatch is semantic intent ops (`align`) that the server
-resolves into geometry, never raw pixels.
+useful agent capability; the escape hatch is semantic intent ops — `align` and `distribute`,
+now built — that the server resolves into geometry, never raw pixels.
 
 ### Colour is the exception, and it is deliberate
 
@@ -93,9 +99,10 @@ throw away the message.
 layout engine over the whole graph would move nodes the human has pinned — the exact failure
 mode stored positions exist to prevent.
 
-The agreed exception, when it lands: dagre may lay out an **agent-generated** graph, because
-seeding a brand-new 40-node graph is a different act from re-solving one the human has
-arranged. Stored positions still win permanently once set.
+The exception, now built as `generate_graph`: dagre lays out an **agent-generated** graph,
+because seeding a brand-new 40-node graph is a different act from re-solving one the human
+has arranged. Stored positions still win permanently once set, and nothing re-runs dagre over
+an existing arrangement.
 
 ### Loading a file must not rewrite the human's coordinates
 
@@ -108,6 +115,31 @@ from opening the file.
 No optimistic updates in the canvas. `onConnect` and `onReconnect` send the op and wait for
 the push, because the server assigns the id — a locally invented one renders a duplicate that
 is immediately replaced.
+
+### `isLayoutOp` and `kindOf` answer different questions
+
+Do not collapse these back into one predicate. They overlap enough to look redundant and
+they are not:
+
+- **`isLayoutOp`** gates the **write surface**: does this op carry a raw coordinate, and
+  must it therefore stay off MCP?
+- **`kindOf`** gates **change-feed noise**: is this entry part of the human's message, or
+  did it only change where things sit?
+
+The two disagree in both directions, which is the point:
+
+| op | `isLayoutOp` | `kindOf` | why |
+| --- | --- | --- | --- |
+| `align`, `distribute` | `false` | `layout` | names no coordinate, so an agent may issue it — but only moves boxes, so it is noise |
+| `add_node_at` | `true` | `structural` | names a coordinate, so agents cannot issue it — but creates a node, which is always the message |
+| `move_node` | `true` | `layout` | both |
+| `generate_graph` | `false` | `structural` | server computes the geometry, and creating a diagram *is* the message |
+
+`kindOf` used to be derived from `isLayoutOp`, and that produced a real bug: a node dragged
+from the palette was tagged `layout` and filtered out of the feed as noise, so an agent
+never saw the box the user had just added. The test asserting that behaviour encoded the
+bug. `kindOf` now has its own list, and the question it asks is only ever *did this change
+what exists, or just where it sits*.
 
 ### `rev` counts the workspace, not the diagram
 
@@ -180,26 +212,24 @@ became `Bin 6794 -> 7788 bytes` and grep skipped the file entirely.
 defects were invisible for exactly this reason. Verify canvas changes by driving a real
 browser and asserting against the HTTP API — not by reasoning about the code.
 
-## Designed and agreed, not yet all built
+## Built since the reframing
+
+Check the code, not this list, for what exists — but these are done and covered by tests:
+the op log behind `get_changes`, `generate_graph` with dagre, named diagrams with a switcher,
+node colour, semantic layout ops (`align`, `distribute`), and the Playwright suite in `npm test`.
+
+## Designed and agreed, not yet built
 
 Check the code before trusting this list; it records decisions, not status.
 
-- **Op log + `get_changes`** — append-only, server-tracked watermark so the agent knows where
-  it left off across a context wipe. Returns a flat chronological list across all diagrams,
-  each entry tagged with its diagram and whether it is structural or layout.
 - **Batched edits** — the user edits freely and nothing happens until they say go; the agent
   then reads the accumulated diff. Never act on a change the moment it lands.
-- **`generate_graph`** — one op building a whole graph, laid out with dagre. Refuses a
-  non-empty diagram unless `replace: true`, so a sub-plan cannot vanish by accident.
-- **Named diagrams** — a directory, one active, with a visible switcher in the header.
 - **Subcanvases** — a node references another diagram by name in its `data`. A lens badge
   opens it in a floating, *editable* panel anchored to that node. One panel at a time;
   lensing deeper replaces its contents with an in-panel breadcrumb. Deleting the parent node
   **orphans** the subcanvas rather than destroying it. A panel must refuse to open the diagram
   that is already the active main canvas — that is circular.
 - **Code references** in node `data` (`file`, `symbol`, `lines`).
-- **Semantic layout ops** (`align`) the server resolves into geometry.
-- **A committed Playwright browser suite** run by `npm test`.
 
 ## Parked decisions
 
