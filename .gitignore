@@ -8,3 +8,6 @@ dist/
 graph.json
 *.ops.jsonl
 *.state.json
+
+# A directory of diagrams, when the server is pointed at one.
+diagrams/

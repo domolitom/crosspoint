@@ -3,14 +3,18 @@ import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { kindOf, type LogEntry, type LoggedOp } from '@crosspoint/core';
 
 /**
- * Append-only history of everything that happened to a diagram.
+ * Append-only history of everything that happened across the whole workspace.
+ *
+ * One log, not one per diagram: the feed an agent reads is a single chronological list
+ * spanning every diagram, and merging several independently-numbered logs into a total
+ * order is not possible. Each entry carries the diagram it belongs to instead.
  *
  * Entries live in memory and are flushed to a `.ops.jsonl` sidecar. Reads are served
  * from memory, so a lagging disk write can never produce a wrong answer — the same
  * split the graph itself uses, where the file is persistence rather than the live
  * source of truth.
  *
- * Retention is unbounded. A long-lived diagram will grow this file forever; rotation is
+ * Retention is unbounded. A long-lived workspace will grow this file forever; rotation is
  * deliberately not built yet, because trimming history silently is worse than a large
  * file and there is no evidence yet about what a useful window would be.
  */
@@ -20,17 +24,18 @@ export class OpLog {
   private flushed = 0;
   private writing: Promise<void> = Promise.resolve();
   private watermarkValue = 0;
+  /** Which diagram the canvas should show, and every diagram we have seen. */
+  private activeValue?: string;
+  private knownValue: string[] = [];
 
   private constructor(
     readonly path: string,
     readonly statePath: string,
-    readonly diagram: string,
   ) {}
 
-  static async open(graphPath: string): Promise<OpLog> {
-    const base = graphPath.replace(/\.json$/, '');
-    const diagram = base.split('/').pop() || 'graph';
-    const log = new OpLog(`${base}.ops.jsonl`, `${base}.state.json`, diagram);
+  static async open(sidecarBase: string): Promise<OpLog> {
+    const base = sidecarBase.replace(/\.json$/, '');
+    const log = new OpLog(`${base}.ops.jsonl`, `${base}.state.json`);
 
     // A missing log is an empty history, not an error. An existing graph with no log
     // simply has no recorded past — do not invent one.
@@ -46,8 +51,14 @@ export class OpLog {
     }
 
     try {
-      const state = JSON.parse(await readFile(log.statePath, 'utf8')) as { watermark?: number };
+      const state = JSON.parse(await readFile(log.statePath, 'utf8')) as {
+        watermark?: number;
+        active?: string;
+        known?: string[];
+      };
       log.watermarkValue = state.watermark ?? 0;
+      log.activeValue = state.active;
+      log.knownValue = Array.isArray(state.known) ? state.known : [];
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
@@ -59,17 +70,32 @@ export class OpLog {
     return this.watermarkValue;
   }
 
+  /** The active diagram as of the last run, if any. */
+  get active(): string | undefined {
+    return this.activeValue;
+  }
+
+  /**
+   * Diagrams recorded in state.
+   *
+   * This is what lets single-file mode have more than one diagram without scanning the
+   * directory — which would otherwise adopt `package.json` and friends as diagrams.
+   */
+  get knownDiagrams(): string[] {
+    return this.knownValue;
+  }
+
   get latestRev(): number {
     return this.entries.at(-1)?.rev ?? 0;
   }
 
   /** Record an op that has already been applied and validated. */
-  record(rev: number, op: LoggedOp): LogEntry {
+  record(rev: number, op: LoggedOp, diagram: string): LogEntry {
     const entry: LogEntry = {
       rev,
       ts: new Date().toISOString(),
       kind: kindOf(op),
-      diagram: this.diagram,
+      diagram,
       op,
     };
     this.entries.push(entry);
@@ -98,6 +124,13 @@ export class OpLog {
     return entries;
   }
 
+  /** Record workspace state the graph files cannot carry: which diagram is active. */
+  async saveState(state: { active: string; known: string[] }): Promise<void> {
+    this.activeValue = state.active;
+    this.knownValue = state.known;
+    await this.persistState();
+  }
+
   async close(): Promise<void> {
     this.scheduleFlush();
     await this.writing;
@@ -117,6 +150,11 @@ export class OpLog {
   }
 
   private async persistState(): Promise<void> {
-    await writeFile(this.statePath, JSON.stringify({ watermark: this.watermarkValue }) + '\n');
+    const state = {
+      watermark: this.watermarkValue,
+      active: this.activeValue,
+      known: this.knownValue,
+    };
+    await writeFile(this.statePath, JSON.stringify(state) + '\n');
   }
 }

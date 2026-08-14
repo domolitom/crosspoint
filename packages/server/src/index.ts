@@ -3,12 +3,15 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { structuralView, summarise, withoutLayout, type GraphOp } from '@crosspoint/core';
 import { WebSocketServer, type WebSocket } from 'ws';
 
-import { GraphStore, StaleRevError } from './store.js';
+import { StaleRevError, UnknownDiagramError, Workspace } from './workspace.js';
 
 const PORT = Number(process.env.CROSSPOINT_PORT ?? 4000);
-const GRAPH_PATH = process.env.CROSSPOINT_GRAPH ?? process.argv[2] ?? 'graph.json';
+// A directory holds many diagrams; a `.json` path is the older single-file form, kept
+// working so an existing graph stays live rather than needing to be moved.
+const TARGET =
+  process.env.CROSSPOINT_DIAGRAMS ?? process.env.CROSSPOINT_GRAPH ?? process.argv[2] ?? 'diagrams';
 
-const store = await GraphStore.open(GRAPH_PATH);
+const store = await Workspace.open(TARGET);
 
 const KNOWN_OPS = new Set([
   'add_node',
@@ -26,7 +29,7 @@ const KNOWN_OPS = new Set([
 const server = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
 
   if (req.method === 'OPTIONS') return send(res, 204, '');
 
@@ -62,6 +65,25 @@ const server = createServer(async (req, res) => {
       });
     }
 
+    // Diagram management is workspace-level, deliberately not a GraphOp: creating or
+    // switching changes nothing *inside* a diagram, so it has no place in the op log or
+    // in a graph's rev.
+    if (req.method === 'GET' && url.pathname === '/api/diagrams') {
+      return json(res, 200, { active: store.active, diagrams: store.list() });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/diagrams') {
+      const body = await readJson(req);
+      await store.create(String(body.name ?? ''));
+      return json(res, 200, { active: store.active, diagrams: store.list() });
+    }
+
+    if (req.method === 'PUT' && url.pathname === '/api/diagrams/active') {
+      const body = await readJson(req);
+      store.switchTo(String(body.name ?? ''));
+      return json(res, 200, { active: store.active, diagrams: store.list() });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/op') {
       const body = await readJson(req);
       const op = body.op as GraphOp | undefined;
@@ -74,7 +96,8 @@ const server = createServer(async (req, res) => {
 
     return json(res, 404, { error: 'Not found' });
   } catch (err) {
-    const status = err instanceof StaleRevError ? 409 : 400;
+    const status =
+      err instanceof StaleRevError ? 409 : err instanceof UnknownDiagramError ? 404 : 400;
     return json(res, status, { error: (err as Error).message });
   }
 });
@@ -84,12 +107,22 @@ let clientSeq = 0;
 
 wss.on('connection', (socket: WebSocket) => {
   const clientId = `c${++clientSeq}`;
-  socket.send(JSON.stringify({ type: 'hello', clientId }));
-  socket.send(JSON.stringify({ type: 'graph', graph: store.current() }));
+  const send = (message: unknown) => {
+    if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
+  };
 
-  const unsubscribe = store.subscribe(({ graph, origin }) => {
-    if (socket.readyState !== socket.OPEN) return;
-    socket.send(JSON.stringify({ type: 'graph', graph, origin }));
+  send({ type: 'hello', clientId });
+  send({ type: 'diagrams', active: store.active, diagrams: store.list() });
+  send({ type: 'graph', diagram: store.active, graph: store.current() });
+
+  const unsubscribe = store.subscribe((event) => {
+    if (event.type === 'diagrams') {
+      return send({ type: 'diagrams', active: store.active, diagrams: store.list() });
+    }
+    // A diagram nobody is looking at still changes — the agent may be working in one
+    // while the human watches another — so only push what this canvas is showing.
+    if (event.diagram !== store.active) return;
+    send({ type: 'graph', diagram: event.diagram, graph: event.graph, origin: event.origin });
   });
 
   socket.on('message', (raw) => {
@@ -123,7 +156,7 @@ async function readJson(req: IncomingMessage): Promise<Record<string, any>> {
 
 server.listen(PORT, () => {
   console.log(`crosspoint server  http://localhost:${PORT}`);
-  console.log(`graph              ${store.path}`);
+  console.log(`diagrams           ${store.dir}  (active: ${store.active})`);
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
