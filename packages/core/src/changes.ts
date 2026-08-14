@@ -1,4 +1,4 @@
-import { isLayoutOp, type GraphOp } from './types.js';
+import type { GraphOp } from './types.js';
 
 /**
  * The change feed: what happened to a diagram, in the order it happened.
@@ -54,8 +54,33 @@ export interface LogEntry {
 export const withoutLayout = (entries: LogEntry[]): LogEntry[] =>
   entries.filter((entry) => entry.kind !== 'layout');
 
+/**
+ * Ops that only change where things sit.
+ *
+ * Deliberately NOT `isLayoutOp`. Those two predicates answer different questions and the
+ * moment you collapse them into one, something breaks:
+ *
+ *   - `isLayoutOp` gates the **write surface**: does this op carry a raw coordinate, and
+ *     must it therefore stay off the agent's tools? `align` carries none, so the agent may
+ *     issue it — that is the whole point of a semantic layout op.
+ *   - this gates **feed noise**: is this entry part of the human's message? `align` moves
+ *     boxes and nothing else, so it is noise and `withoutLayout` should drop it exactly
+ *     like `move_node`.
+ *
+ * So `align` is issuable by an agent *and* filtered from the feed. Conversely
+ * `add_node_at` carries a coordinate — off the agent surface — but brings a node into
+ * existence, which is always part of the message, so it stays in the feed.
+ *
+ * The question here is only ever "did this change what exists, or just where it sits".
+ */
+const REARRANGING_OPS = new Set(['move_node', 'align', 'distribute']);
+
 export const kindOf = (op: LoggedOp): ChangeKind =>
-  op.op === 'external_edit' ? 'external' : isLayoutOp(op) ? 'layout' : 'structural';
+  op.op === 'external_edit'
+    ? 'external'
+    : REARRANGING_OPS.has(op.op)
+      ? 'layout'
+      : 'structural';
 
 const quote = (s: string) => `"${s}"`;
 const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
@@ -99,6 +124,16 @@ export function describeOp(op: LoggedOp): string {
     }
     case 'move_node':
       return `moved ${op.id}`;
+    case 'align': {
+      // "left edges" reads better than "left edge" for a group, and centre alignment is an
+      // axis rather than an edge at all.
+      const on = op.edge.startsWith('center')
+        ? `their ${op.edge === 'center-x' ? 'horizontal' : 'vertical'} centres`
+        : `their ${op.edge} edges`;
+      return `aligned ${count(op.ids.length, 'node')} on ${on}`;
+    }
+    case 'distribute':
+      return `distributed ${count(op.ids.length, 'node')} ${op.axis}ly`;
     case 'external_edit':
       return 'graph file edited outside the server';
   }

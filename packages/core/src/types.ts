@@ -61,6 +61,22 @@ export type PlacedNode = GraphNode & { position: Position };
 
 export const emptyGraph = (): Graph => ({ rev: 0, nodes: [], edges: [] });
 
+/** Which edge or axis a set of nodes is being lined up on. */
+export const ALIGN_EDGES = [
+  'left',
+  'right',
+  'top',
+  'bottom',
+  'center-x',
+  'center-y',
+] as const;
+
+export type AlignEdge = (typeof ALIGN_EDGES)[number];
+
+export const DISTRIBUTE_AXES = ['horizontal', 'vertical'] as const;
+
+export type DistributeAxis = (typeof DISTRIBUTE_AXES)[number];
+
 /** A node in a `generate_graph` payload. Carries no position — that is the point. */
 export interface GeneratedNode {
   label: string;
@@ -108,6 +124,16 @@ export type StructuralOp =
   | { op: 'update_edge'; id: string; label?: string }
   | { op: 'delete_node'; id: string }
   | { op: 'delete_edge'; id: string }
+  /**
+   * Tidy an existing arrangement by naming intent rather than geometry.
+   *
+   * Structural for the purposes of *who may issue it* — no coordinate crosses the
+   * boundary, so this is the agreed escape hatch that lets an agent tidy at all. But it
+   * only moves boxes, so the change feed tags it `layout` and filters it as noise. That
+   * is the one place `isLayoutOp` and `kindOf` deliberately disagree; see `changes.ts`.
+   */
+  | { op: 'align'; ids: string[]; edge: AlignEdge }
+  | { op: 'distribute'; ids: string[]; axis: DistributeAxis }
   /**
    * Build a whole diagram in one op.
    *

@@ -15,11 +15,17 @@ test('ops are tagged structural, layout or external', () => {
   assert.equal(kindOf({ op: 'add_node', label: 'retry' }), 'structural');
   assert.equal(kindOf({ op: 'delete_edge', id: 'a->b' }), 'structural');
   assert.equal(kindOf({ op: 'move_node', id: 'a', position: { x: 0, y: 0 } }), 'layout');
+  // Structural despite carrying a coordinate: it brings a node into existence, and that is
+  // always part of the message. Tagging it `layout` — which fell out of deriving `kindOf`
+  // from `isLayoutOp` — meant a box dragged from the palette was filtered out of the feed
+  // as noise and never reached a reader at all.
   assert.equal(
     kindOf({ op: 'add_node_at', label: 'x', position: { x: 0, y: 0 } }),
-    'layout',
-    'dropping a box on the canvas is a layout act',
+    'structural',
+    'dropping a box creates something, so it belongs in the feed',
   );
+  assert.equal(kindOf({ op: 'align', ids: ['a', 'b'], edge: 'left' }), 'layout');
+  assert.equal(kindOf({ op: 'distribute', ids: ['a', 'b'], axis: 'horizontal' }), 'layout');
   assert.equal(kindOf({ op: 'external_edit' }), 'external');
 });
 

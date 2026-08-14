@@ -1,3 +1,4 @@
+import { alignNodes, distributeNodes } from './arrange.js';
 import { GraphError } from './errors.js';
 import { generateGraph } from './generate.js';
 import { slugify, uniqueId } from './ids.js';
@@ -194,6 +195,14 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       // burn forty revs and forty file writes, and the canvas would flail through them.
       return { ...next, nodes, edges };
     }
+
+    // Layout intent, resolved into geometry on this side of the boundary. The issuer named
+    // no coordinate, which is why these are allowed on the agent's write surface at all.
+    case 'align':
+      return { ...alignNodes(graph, op.ids, op.edge), rev: next.rev };
+
+    case 'distribute':
+      return { ...distributeNodes(graph, op.ids, op.axis), rev: next.rev };
 
     case 'add_node_at': {
       // Same id generation as add_node; only the placement differs. The position comes
