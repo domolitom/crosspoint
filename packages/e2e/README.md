@@ -1,0 +1,62 @@
+# @crosspoint/e2e
+
+Browser tests for the canvas.
+
+```bash
+npm run test -w @crosspoint/e2e        # the whole suite
+node --test --test-name-pattern "multi-node drag" packages/e2e/dist/canvas.test.js
+```
+
+Needs `npm run build` first — the suite runs the *built* server and drives vite, and the
+tests themselves compile to `dist` like every other package here.
+
+## Why this package exists
+
+**This is the layer where every silent bug in this project has lived**, and the core and
+server suites reach none of it. All of these shipped broken and were found by a human
+clicking around, not by a test:
+
+- `onEdgesChange` was missing, so edges could never be selected and Delete had nothing
+  to act on
+- `deleteKeyCode` defaults to Backspace alone, so the Delete key did nothing
+- `OnNodeDrag`'s third argument was ignored, so a multi-node drag persisted only the node
+  under the cursor and the rest silently reverted
+- the node rebuild picked out `label` and dropped every other `data` key, so colour
+  reached the browser and vanished on the next server push
+- all seven colour swatches rendered as identical grey pills **while every colour
+  assertion passed**, because the assertions measured nodes rather than buttons
+
+That last one is the standard to hold: **assert on the thing a human would look at.** A
+test that measures a proxy can pass while the screen is visibly wrong.
+
+The canvas has no error surface — a dropped interaction just does nothing — so reasoning
+about the code is not evidence that it works. Driving a real browser is.
+
+## How it is isolated
+
+Each run boots its own stack: the built server on port 4477 with a graph file in a fresh
+`mkdtemp` directory, and vite on 5477 with `CROSSPOINT_SERVER` pointed at it. It never
+touches the repo's `graph.json` and never assumes your dev server is running, so running
+the tests can neither destroy your working diagram nor be confused by its state.
+Teardown uses `SIGKILL` and waits for the ports to close — a stray server holding a port
+has broken a run here before.
+
+## Two traps worth knowing
+
+**Measure `offsetWidth`, not `getBoundingClientRect().width`.** The latter is measured
+through React Flow's zoom transform, so `fitView` on a wide graph reports a 120px node as
+~66px, and a width assertion fails against an app that is perfectly correct.
+
+**Reconnection is driven by React Flow's own anchor**, a transparent circle with class
+`react-flow__edgeupdater-target` sitting at the edge end. Dragging the *node's* handle
+instead starts a brand-new connection — a different gesture that will not reconnect
+anything.
+
+## The one thing not natively simulated
+
+HTML5 drag-and-drop cannot be driven by Playwright's mouse, because `dataTransfer` only
+exists on real drag events. The palette test dispatches `dragstart`/`dragover`/`drop`
+directly, sharing one `DataTransfer` so the payload set on dragstart is visible to the
+drop, exactly as a browser would present it. This exercises the app's own handlers and
+its screen-to-flow coordinate conversion. It does **not** exercise the browser's native
+drag gesture.
