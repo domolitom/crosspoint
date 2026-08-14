@@ -345,3 +345,71 @@ test('serialisation key order is fixed regardless of insertion order', () => {
 test('placeNode on an empty graph starts at the origin', () => {
   assert.deepEqual(placeNode([]), { x: 0, y: 0 });
 });
+
+test('a colour is stored on the node by name', () => {
+  const g = applyOp(build(), { op: 'update_node', id: 'database', color: 'amber' });
+  assert.equal(g.nodes.find((n) => n.id === 'database')!.data.color, 'amber');
+});
+
+test('a node can be created already coloured', () => {
+  const g = applyOp(emptyGraph(), { op: 'add_node', label: 'Broken step', color: 'red' });
+  assert.equal(g.nodes[0].data.color, 'red');
+});
+
+test('an unknown colour is rejected rather than stored', () => {
+  for (const color of ['crimsonish', '#a3221c', '', 'RED']) {
+    assert.throws(
+      () => applyOp(build(), { op: 'update_node', id: 'database', color: color as never }),
+      GraphError,
+      `"${color}" should not be accepted`,
+    );
+  }
+});
+
+// An uncoloured node should read as untouched in the file, not carry a sentinel.
+test('"none" removes the colour key instead of storing the string', () => {
+  let g = applyOp(build(), { op: 'update_node', id: 'database', color: 'green' });
+  g = applyOp(g, { op: 'update_node', id: 'database', color: 'none' });
+
+  const data = g.nodes.find((n) => n.id === 'database')!.data;
+  assert.equal('color' in data, false, 'the key itself is gone');
+  assert.ok(!serialize(g).includes('none'), 'and nothing leaks into the file');
+});
+
+test('colour and label do not clobber each other', () => {
+  let g = applyOp(build(), { op: 'update_node', id: 'database', color: 'blue' });
+
+  g = applyOp(g, { op: 'update_node', id: 'database', label: 'Postgres' });
+  let data = g.nodes.find((n) => n.id === 'database')!.data;
+  assert.equal(data.color, 'blue', 'relabelling kept the colour');
+  assert.equal(data.label, 'Postgres');
+
+  g = applyOp(g, { op: 'update_node', id: 'database', color: 'violet' });
+  data = g.nodes.find((n) => n.id === 'database')!.data;
+  assert.equal(data.label, 'Postgres', 'recolouring kept the label');
+  assert.equal(data.color, 'violet');
+});
+
+test('colouring moves nothing', () => {
+  let g = applyOp(build(), { op: 'move_node', id: 'database', position: { x: 600, y: 300 } });
+  const before = g.nodes.map((n) => ({ ...n.position! }));
+
+  g = applyOp(g, { op: 'update_node', id: 'database', color: 'amber' });
+
+  assert.deepEqual(g.nodes.map((n) => ({ ...n.position! })), before);
+});
+
+test('the agent view carries the colour, since colour is meaning', () => {
+  const g = applyOp(build(), { op: 'update_node', id: 'database', color: 'red' });
+  const view = structuralView(g);
+  assert.deepEqual(view.nodes.find((n) => n.id === 'database'), {
+    id: 'database',
+    label: 'Database',
+    color: 'red',
+  });
+});
+
+// Colour being filtered as noise would defeat the point of storing it semantically.
+test('a colour change is structural, so the layout filter keeps it', () => {
+  assert.equal(isLayoutOp({ op: 'update_node', id: 'a', color: 'red' }), false);
+});

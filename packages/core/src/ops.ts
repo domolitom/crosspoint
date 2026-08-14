@@ -1,7 +1,48 @@
 import { placeNode, snapPosition } from './placement.js';
-import type { Graph, GraphEdge, GraphNode, GraphOp, PlacedNode } from './types.js';
+import {
+  NODE_COLORS,
+  type ColorInput,
+  type Graph,
+  type GraphEdge,
+  type GraphNode,
+  type GraphOp,
+  type NodeData,
+  type PlacedNode,
+} from './types.js';
 
 export class GraphError extends Error {}
+
+/**
+ * Reject an unknown colour rather than storing it.
+ *
+ * A validated field, not a free-form entry in the open `data` bag: the point of storing
+ * names is that a reader can rely on them, which fails the moment `"crimsonish"` gets in.
+ */
+function requireColor(color: unknown): void {
+  if (color === undefined || color === 'none') return;
+  if (typeof color !== 'string' || !(NODE_COLORS as readonly string[]).includes(color)) {
+    throw new GraphError(
+      `Unknown colour "${String(color)}" — expected one of ${NODE_COLORS.join(', ')}, or "none"`,
+    );
+  }
+}
+
+/**
+ * Fold a label / colour / data change into existing node data.
+ *
+ * The three are independent: relabelling must not drop a colour, and recolouring must not
+ * reset a label to the node id. `none` removes the key entirely — an uncoloured node should
+ * read as untouched in the file rather than carrying a `"none"` sentinel forever.
+ */
+function mergeNodeData(
+  current: NodeData,
+  change: { label?: string; color?: ColorInput; data?: Record<string, unknown> },
+): NodeData {
+  const data: NodeData = { ...current, ...change.data, label: change.label ?? current.label };
+  if (change.color === 'none') delete data.color;
+  else if (change.color !== undefined) data.color = change.color;
+  return data;
+}
 
 /** Slugify a label into a readable, stable id — ids an agent can reason about. */
 function slugify(label: string): string {
@@ -65,12 +106,13 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
 
   switch (op.op) {
     case 'add_node': {
+      requireColor(op.color);
       const taken = new Set(graph.nodes.map((n) => n.id));
       const id = uniqueId(slugify(op.label), taken);
       const node: GraphNode = {
         id,
         position: placeNode(graph.nodes, { near: op.near, label: op.label }),
-        data: { ...op.data, label: op.label },
+        data: mergeNodeData({ label: op.label }, op),
       };
       return { ...next, nodes: [...graph.nodes, node] };
     }
@@ -110,12 +152,11 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
 
     case 'update_node': {
       requireNode(graph, op.id, 'id');
+      requireColor(op.color);
       return {
         ...next,
         nodes: graph.nodes.map((n) =>
-          n.id === op.id
-            ? { ...n, data: { ...n.data, ...op.data, label: op.label ?? n.data.label } }
-            : n,
+          n.id === op.id ? { ...n, data: mergeNodeData(n.data, op) } : n,
         ),
       };
     }

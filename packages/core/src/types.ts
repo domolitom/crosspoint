@@ -19,8 +19,26 @@ export interface GraphNode {
   data: NodeData;
 }
 
+/**
+ * Node colours, stored by name and never as a hex value.
+ *
+ * Colour here is meaning, not decoration — a red step says "this one is broken", and both
+ * sides of the conversation need to read that. A name survives that trip; `#a3221c` does
+ * not. Same principle as semantic layout ops: store the intent, not the rendered value.
+ *
+ * The concrete hex values live in the canvas CSS, which is the only place that needs them.
+ */
+export const NODE_COLORS = ['slate', 'amber', 'red', 'green', 'blue', 'violet'] as const;
+
+export type NodeColor = (typeof NODE_COLORS)[number];
+
+/** What an op may ask for. `none` clears the colour and is never itself stored. */
+export type ColorInput = NodeColor | 'none';
+
 export interface NodeData {
   label: string;
+  /** Absent means uncoloured. An uncoloured node carries no colour key at all. */
+  color?: NodeColor;
   [key: string]: unknown;
 }
 
@@ -51,10 +69,26 @@ export const emptyGraph = (): Graph => ({ rev: 0, nodes: [], edges: [] });
  * cannot express a position, so it cannot overwrite one.
  */
 export type StructuralOp =
-  | { op: 'add_node'; label: string; near?: string; data?: Record<string, unknown> }
+  | {
+      op: 'add_node';
+      label: string;
+      near?: string;
+      color?: ColorInput;
+      data?: Record<string, unknown>;
+    }
   | { op: 'add_edge'; source: string; target: string; label?: string }
   | { op: 'reconnect_edge'; id: string; source: string; target: string }
-  | { op: 'update_node'; id: string; label?: string; data?: Record<string, unknown> }
+  | {
+      op: 'update_node';
+      id: string;
+      label?: string;
+      /**
+       * Colour is structural, not layout: recolouring destroys no spatial work, so an
+       * agent setting it cannot damage an arrangement the way a coordinate could.
+       */
+      color?: ColorInput;
+      data?: Record<string, unknown>;
+    }
   | { op: 'update_edge'; id: string; label?: string }
   | { op: 'delete_node'; id: string }
   | { op: 'delete_edge'; id: string };

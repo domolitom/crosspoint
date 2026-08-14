@@ -63,15 +63,27 @@ const quote = (s: string) => `"${s}"`;
 export function describeOp(op: LoggedOp): string {
   switch (op.op) {
     case 'add_node':
-      return `+ node ${quote(op.label)}${op.near ? ` near ${op.near}` : ''}`;
+      return (
+        `+ node ${quote(op.label)}` +
+        (op.near ? ` near ${op.near}` : '') +
+        (op.color && op.color !== 'none' ? ` coloured ${op.color}` : '')
+      );
     case 'add_node_at':
       return `+ node ${quote(op.label)} (dropped on canvas)`;
     case 'add_edge':
       return `+ edge ${op.source} → ${op.target}${op.label ? ` ${quote(op.label)}` : ''}`;
     case 'reconnect_edge':
       return `~ edge ${op.id} now ${op.source} → ${op.target}`;
-    case 'update_node':
-      return op.label ? `~ node ${op.id} relabelled ${quote(op.label)}` : `~ node ${op.id} data`;
+    case 'update_node': {
+      // One op can carry several changes; naming each is the difference between a reader
+      // knowing what happened and having to go and diff the graph itself.
+      const parts: string[] = [];
+      if (op.label) parts.push(`relabelled ${quote(op.label)}`);
+      if (op.color === 'none') parts.push('colour cleared');
+      else if (op.color) parts.push(`coloured ${op.color}`);
+      if (op.data) parts.push('data');
+      return `~ node ${op.id} ${parts.length ? parts.join(', ') : 'data'}`;
+    }
     case 'update_edge':
       return `~ edge ${op.id} labelled ${quote(op.label ?? '')}`;
     case 'delete_node':

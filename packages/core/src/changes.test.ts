@@ -92,6 +92,38 @@ test('an empty feed says so rather than rendering nothing', () => {
   assert.equal(summarise([]), 'No changes.');
 });
 
+test('a colour change reads as a colour change', () => {
+  assert.equal(
+    describeOp({ op: 'update_node', id: 'parse', color: 'amber' }),
+    '~ node parse coloured amber',
+  );
+  assert.equal(
+    describeOp({ op: 'update_node', id: 'parse', color: 'none' }),
+    '~ node parse colour cleared',
+  );
+  assert.equal(
+    describeOp({ op: 'add_node', label: 'Broken step', color: 'red' }),
+    '+ node "Broken step" coloured red',
+  );
+});
+
+test('one op carrying label and colour names both', () => {
+  assert.equal(
+    describeOp({ op: 'update_node', id: 'parse', label: 'Parse input', color: 'green' }),
+    '~ node parse relabelled "Parse input", coloured green',
+  );
+});
+
+// Colour must survive the filter, or colouring a node red to say something would be
+// dropped as noise before it ever reached a reader.
+test('withoutLayout keeps a colour change', () => {
+  const feed = [
+    entry(1, { op: 'update_node', id: 'parse', color: 'red' }),
+    entry(2, { op: 'move_node', id: 'parse', position: { x: 0, y: 0 } }),
+  ];
+  assert.deepEqual(withoutLayout(feed).map((e) => e.rev), [1]);
+});
+
 test('withoutLayout keeps the message and drops the repositioning', () => {
   const feed = [
     entry(1, { op: 'add_node', label: 'retry' }),
