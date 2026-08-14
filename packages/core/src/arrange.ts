@@ -125,6 +125,19 @@ export function distributeNodes(graph: Graph, ids: string[], axis: DistributeAxi
   const occupied = sorted.reduce((sum, b) => sum + (horizontal ? b.w : b.h), 0);
   const gap = (end - start - occupied) / (sorted.length - 1);
 
+  // The outermost nodes are anchors, so the span is fixed. If the boxes need more room
+  // than that span, no arrangement satisfies the request: the only options are overlapping
+  // them or moving an anchor. Refusing beats doing nothing while reporting success — the
+  // caller asked for a tidy and would otherwise be told it happened.
+  if (gap < 0) {
+    const axisName = horizontal ? 'wide' : 'tall';
+    throw new GraphError(
+      `Cannot distribute ${sorted.length} nodes ${axis}ly: they are ${Math.round(occupied)}px ` +
+        `${axisName} in total but only ${Math.round(end - start)}px apart. Move the outermost ` +
+        'nodes further apart first, or distribute fewer of them.',
+    );
+  }
+
   const moves = new Map<string, Position>();
   let cursor = start;
   for (const b of sorted) {

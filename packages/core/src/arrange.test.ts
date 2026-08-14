@@ -179,11 +179,18 @@ test('unknown, duplicate and too-few ids are all refused', () => {
 });
 
 test('each op costs exactly one rev', () => {
-  const base = graphOf(at('a', 0, 0), at('b', 100, 200));
-  const aligned = applyOp(base, { op: 'align', ids: ['a', 'b'], edge: 'top' });
+  // Generously spaced: a span that cannot hold the boxes is refused, so a cramped fixture
+  // would be testing the guard rather than the rev counter.
+  const base = graphOf(at('a', 0, 0), at('b', 400, 300), at('c', 900, 900));
+
+  const aligned = applyOp(base, { op: 'align', ids: ['a', 'b', 'c'], edge: 'top' });
   assert.equal(aligned.rev, base.rev + 1);
 
-  const spread = applyOp(aligned, { op: 'distribute', ids: ['a', 'b'], axis: 'vertical' });
+  const spread = applyOp(aligned, {
+    op: 'distribute',
+    ids: ['a', 'b', 'c'],
+    axis: 'horizontal',
+  });
   assert.equal(spread.rev, aligned.rev + 1);
 });
 
@@ -222,4 +229,27 @@ test('add_node_at is barred from the agent surface but stays in the feed', () =>
 
   const entry: LogEntry = { rev: 1, ts: 'x', kind: kindOf(op), diagram: 'plan', op };
   assert.equal(withoutLayout([entry]).length, 1, 'so the default feed keeps it');
+});
+
+// A span smaller than the boxes it must hold has no solution: the endpoints are anchors, so
+// the only alternatives are overlapping them or moving an anchor. Silently succeeding while
+// changing nothing is the failure mode this refusal exists to prevent.
+test('distributing into a span too small to hold the nodes is refused', () => {
+  const base = graphOf(at('a', 0, 0), at('b', 0, 20), at('c', 0, 40));
+
+  assert.throws(
+    () => applyOp(base, { op: 'distribute', ids: ['a', 'b', 'c'], axis: 'vertical' }),
+    (err: unknown) => {
+      assert.ok(err instanceof GraphError);
+      assert.match((err as Error).message, /only \d+px apart/);
+      return true;
+    },
+  );
+});
+
+test('distributing into a span that does fit succeeds', () => {
+  const base = graphOf(at('a', 0, 0), at('b', 0, 100), at('c', 0, 600));
+  const spread = applyOp(base, { op: 'distribute', ids: ['a', 'b', 'c'], axis: 'vertical' });
+  assert.equal(posOf(spread, 'a').y, 0);
+  assert.equal(posOf(spread, 'c').y, 600);
 });
