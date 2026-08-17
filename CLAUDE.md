@@ -260,6 +260,16 @@ would put `+ node ""` then `~ node relabelled` into the change feed for *every* 
 noise in the one channel that exists to carry meaning — and an abandoned draft would leave
 junk behind needing a third op to remove.
 
+**An inline input focuses on the next frame, so a test must wait for focus.** `LabelInput`
+defers focus with `requestAnimationFrame` to win a race against React Flow's own handler.
+Keystrokes sent straight after the field appears go to the document instead — `keyboard.type`
+is slow enough to mask it, a single `Meta+A` is not. The e2e suite has an `awaitFocus` helper;
+use it.
+
+**A labelled, selected edge has its × over the path midpoint**, so a positional double-click
+on the edge lands on delete instead of opening the editor. Dispatch the event to the element
+when the point is contested, and keep one positional test to prove the edge is hittable.
+
 **An inline input must stop its own key events.** React Flow listens for Backspace and Delete
 to remove the selection and for space to pan, so typing a label would delete the node being
 renamed. `LabelInput` calls `stopPropagation` on every key event; there is an e2e test that
