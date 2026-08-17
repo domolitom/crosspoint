@@ -48,6 +48,41 @@ async function seed(label: string, x: number, y: number): Promise<string> {
   return node.id;
 }
 
+
+/**
+ * Create a diagram, switch the canvas to it, and return a seeder scoped to it.
+ *
+ * Tests that click on things need their own diagram. This suite accumulates dozens of
+ * nodes, and `fitView` then zooms so far out that a node click lands on empty canvas —
+ * which fails as "the palette is disabled" or a silent timeout rather than anything
+ * resembling the real cause.
+ */
+async function freshDiagram(name: string) {
+  await fetch(`${API}/api/diagrams`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  await openCanvas(stack);
+  const switcher = stack.page.locator('.diagram-switcher');
+  await until(`${name} to be listed`, async () =>
+    (await switcher.locator(`option[value="${name}"]`).count()) > 0,
+  );
+  await switcher.selectOption(name);
+  await until(`${name} to be active`, async () => (await switcher.inputValue()) === name);
+  return async (label: string, x: number, y: number) => {
+    const { status } = await stack.op({ op: 'add_node_at', label, position: { x, y } }, name);
+    assert.equal(status, 200, `seeding ${label} failed`);
+    const g = await stack.graph(name);
+    const node = g.nodes.find((n: any) => n.data.label === label);
+    assert.ok(node, `seeded node ${label} not found`);
+    await until('the seeded node to render', async () =>
+      (await stack.page.locator(`.react-flow__node[data-id="${node.id}"]`).count()) > 0,
+    );
+    return node.id;
+  };
+}
+
 const nodeById = async (id: string) => {
   const graph = await stack.graph();
   return graph.nodes.find((n: any) => n.id === id);
@@ -255,63 +290,6 @@ test('reconnecting an edge endpoint moves it and keeps its label', async () => {
   assert.ok(
     graph.edges.every((e: any) => e.target !== old || e.source !== src),
     'the old edge should be moved, not duplicated',
-  );
-});
-
-test('dragging from the palette creates a node near the drop point', async () => {
-  await openCanvas(stack);
-  const label = 'Dropped here';
-
-  // The drop handler asks for a label with window.prompt; answer it before dropping.
-  await stack.page.evaluate((text) => {
-    (window as any).prompt = () => text;
-  }, label);
-
-  const palette = await stack.page.locator('.palette-node').boundingBox();
-  const pane = await stack.page.locator('.react-flow__pane').boundingBox();
-  assert.ok(palette && pane);
-  const drop = { x: pane.x + pane.width * 0.62, y: pane.y + pane.height * 0.4 };
-
-  // HTML5 drag-and-drop cannot be driven by Playwright's mouse: the dataTransfer object
-  // only exists on real drag events. Dispatch them directly, sharing one DataTransfer so
-  // the payload set in dragstart is visible to dragover and drop, exactly as a browser
-  // would present it. This exercises the app's own handlers and its screen-to-flow
-  // conversion; what it does not exercise is the browser's native drag gesture.
-  const flowPoint = await stack.page.evaluate(
-    ({ drop }) => {
-      const source = document.querySelector('.palette-node')!;
-      const pane = document.querySelector('.react-flow__pane')!;
-      const dt = new DataTransfer();
-      source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
-      const init = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: drop.x, clientY: drop.y };
-      pane.dispatchEvent(new DragEvent('dragover', init));
-      pane.dispatchEvent(new DragEvent('drop', init));
-      return drop;
-    },
-    { drop },
-  );
-
-  const created = await until('the dropped node to reach the server', async () => {
-    const graph = await stack.graph();
-    return graph.nodes.find((n: any) => n.data.label === label) ?? null;
-  });
-
-  // Compare against where the canvas itself says that screen point maps to, rather than
-  // recomputing the viewport transform here and testing our own arithmetic.
-  const expected = await stack.page.evaluate((point) => {
-    const el = document.querySelector('.react-flow__viewport') as HTMLElement;
-    const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
-    const pane = document.querySelector('.react-flow__pane')!.getBoundingClientRect();
-    return {
-      x: (point.x - pane.left - m.e) / m.a,
-      y: (point.y - pane.top - m.f) / m.d,
-    };
-  }, flowPoint);
-
-  assert.ok(
-    Math.abs(created.position.x - expected.x) < 40 &&
-      Math.abs(created.position.y - expected.y) < 40,
-    `node landed at ${JSON.stringify(created.position)}, expected near ${JSON.stringify(expected)}`,
   );
 });
 
@@ -814,8 +792,8 @@ test('a resized panel is remembered for that diagram', async () => {
  * the arrowhead — a coloured line ending in a grey arrow would otherwise pass silently.
  */
 
-const edgeById = async (id: string) => {
-  const graph = await stack.graph();
+const edgeById = async (id: string, diagram = 'edge-paint') => {
+  const graph = await stack.graph(diagram);
   return graph.edges.find((e: any) => e.id === id);
 };
 
@@ -845,17 +823,17 @@ async function edgePaint(id: string) {
  * Labels must be unique per call: `seed` looks its node up by label and returns the *first*
  * match, so reusing one silently hands back the previous pair's ids.
  */
-async function seedEdge(tag: string, y: number) {
-  const source = await seed(`${tag} src`, 0, y);
-  const target = await seed(`${tag} dst`, 0, y + 150);
-  const { status } = await stack.op({ op: 'add_edge', source, target });
+async function seedEdge(diagram: string) {
+  const seedIn = await freshDiagram(diagram);
+  const source = await seedIn('Edge src', 0, 0);
+  const target = await seedIn('Edge dst', 0, 200);
+  const { status } = await stack.op({ op: 'add_edge', source, target }, diagram);
   assert.equal(status, 200, 'seeding the edge failed');
-  return { edge: `${source}->${target}`, source, target };
+  return { edge: `${source}->${target}`, source, target, diagram };
 }
 
 test('a swatch colours a selected edge, line and arrowhead together', async () => {
-  const { edge } = await seedEdge('Paint', 1400);
-  await openCanvas(stack);
+  const { edge, diagram } = await seedEdge('edge-paint');
   await until('the edge to render', async () =>
     (await stack.page.locator(`.react-flow__edge[data-id="${edge}"]`).count()) > 0,
   );
@@ -892,7 +870,7 @@ test('a swatch colours a selected edge, line and arrowhead together', async () =
 // The palette acts on the selection, so a just-coloured edge is selected by definition. If
 // selection repainted it, applying a colour would look like it did nothing.
 test('a selected coloured edge still shows its own colour', async () => {
-  const graph = await stack.graph();
+  const graph = await stack.graph('edge-paint');
   const edge = graph.edges.find((e: any) => e.color === 'red');
   assert.ok(edge, 'expected the red edge from the previous test');
 
@@ -906,7 +884,7 @@ test('a selected coloured edge still shows its own colour', async () => {
 });
 
 test('clearing an edge colour restores the default and removes the key', async () => {
-  const graph = await stack.graph();
+  const graph = await stack.graph('edge-paint');
   const edge = graph.edges.find((e: any) => e.color === 'red');
   assert.ok(edge, 'expected a coloured edge');
 
@@ -990,4 +968,203 @@ test('one swatch click colours a mixed node and edge selection', async () => {
     return p && p.stroke === 'rgb(22, 163, 74)' ? p : null;
   });
   assert.equal(paint.stroke, 'rgb(22, 163, 74)', 'green stroke should be #16a34a');
+});
+
+/**
+ * The last two `window.prompt` calls, replaced.
+ *
+ * Naming a diagram moved into the header; naming a subcanvas stopped being asked at all,
+ * because the name was already derived from the node's label.
+ */
+
+test('the header input creates a diagram, and Escape cancels', async () => {
+  await openCanvas(stack);
+  const listed = async () =>
+    stack.page.locator('.diagram-switcher option').allTextContents();
+  const before = (await listed()).length;
+
+  // Escape first: nothing should be created.
+  await stack.page.locator('.new-diagram').click();
+  const input = stack.page.locator('.cp-diagram-input');
+  await until('the header input to appear', async () => (await input.count()) > 0);
+  await input.fill('abandoned');
+  await stack.page.keyboard.press('Escape');
+  await until('the input to close', async () => (await input.count()) === 0);
+  assert.equal((await listed()).length, before, 'Escape must not create a diagram');
+
+  await stack.page.locator('.new-diagram').click();
+  await until('the header input to reappear', async () => (await input.count()) > 0);
+  await input.fill('from-header');
+  await stack.page.keyboard.press('Enter');
+
+  await until('the new diagram to be listed and active', async () => {
+    const names = await listed();
+    const active = await stack.page.locator('.diagram-switcher').inputValue();
+    return names.some((n) => n.startsWith('from-header')) && active === 'from-header';
+  });
+});
+
+test('creating a subcanvas asks nothing and names itself from the node', async () => {
+  // Back to a diagram with a node to lens.
+  const seedIn = await freshDiagram('lens-naming');
+  const id = await seedIn('Parse input', 0, 0);
+  const node = stack.page.locator(`.react-flow__node[data-id="${id}"]`);
+
+  await node.locator('.cp-lens').click();
+
+  // No input, no dialog — the panel just opens on a diagram named from the label.
+  const crumbs = await until('the panel to open', async () => {
+    const c = await stack.page.locator('.lens-panel .lens-crumb').allTextContents();
+    return c.length ? c : null;
+  });
+  assert.equal(
+    await stack.page.locator('.cp-diagram-input').count(),
+    0,
+    'nothing should have asked for a name',
+  );
+  assert.match(crumbs[0].trim(), /^parse-input-detail$/, `got ${crumbs[0]}`);
+
+  const linked = (await stack.graph('lens-naming')).nodes.find((n: any) => n.id === id);
+  assert.equal(linked.data.subcanvas, 'parse-input-detail');
+});
+
+/**
+ * Creating and renaming, inline.
+ *
+ * The palette drag this replaces was the one interaction the suite could not drive
+ * natively — HTML5 `dataTransfer` exists only on real drag events — so removing it also
+ * removes the only synthetic-event caveat here. Double-click is real mouse input.
+ */
+
+/** Double-click the pane at a fraction across it, and return the screen point used. */
+async function doubleClickPane(fx: number, fy: number, root = '.react-flow__pane') {
+  const pane = await stack.page.locator(root).first().boundingBox();
+  assert.ok(pane, 'the pane has no bounding box');
+  const point = { x: pane.x + pane.width * fx, y: pane.y + pane.height * fy };
+  await stack.page.mouse.dblclick(point.x, point.y);
+  return point;
+}
+
+test('double-clicking empty canvas creates a node there, with one op', async () => {
+  await freshDiagram('create-inline');
+  const before = await stack.graph('create-inline');
+  const zoomBefore = await stack.page.evaluate(
+    () => getComputedStyle(document.querySelector('.react-flow__viewport')!).transform,
+  );
+
+  const point = await doubleClickPane(0.62, 0.4);
+  const input = stack.page.locator('.cp-node-input');
+  await until('the draft input to appear', async () => (await input.count()) > 0);
+
+  // Double-click creates; it must not also zoom, or the point drifts under the caret.
+  assert.equal(
+    await stack.page.evaluate(
+      () => getComputedStyle(document.querySelector('.react-flow__viewport')!).transform,
+    ),
+    zoomBefore,
+    'double-clicking the pane must not zoom the canvas',
+  );
+
+  await input.fill('Typed inline');
+  await stack.page.keyboard.press('Enter');
+
+  const created = await until('the node to reach the server', async () => {
+    const g = await stack.graph('create-inline');
+    return g.nodes.find((n: any) => n.data.label === 'Typed inline') ?? null;
+  });
+  const after = await stack.graph('create-inline');
+  assert.equal(after.nodes.length, before.nodes.length + 1, 'exactly one node was added');
+
+  // One op, not a create followed by a rename.
+  const feed = await (await fetch(`${API}/api/changes?since=${before.rev}`)).json();
+  const ops = feed.entries.map((e: any) => e.op.op);
+  assert.deepEqual(ops, ['add_node_at'], `expected a single add_node_at, got ${ops.join(', ')}`);
+
+  const expected = await stack.page.evaluate((pt) => {
+    const el = document.querySelector('.react-flow__viewport') as HTMLElement;
+    const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+    const pane = document.querySelector('.react-flow__pane')!.getBoundingClientRect();
+    return { x: (pt.x - pane.left - m.e) / m.a, y: (pt.y - pane.top - m.f) / m.d };
+  }, point);
+  assert.ok(
+    Math.abs(created.position.x - expected.x) < 40 &&
+      Math.abs(created.position.y - expected.y) < 40,
+    `node landed at ${JSON.stringify(created.position)}, expected near ${JSON.stringify(expected)}`,
+  );
+});
+
+test('Escape during a draft leaves the graph and the rev untouched', async () => {
+  const before = await stack.graph('create-inline');
+
+  await doubleClickPane(0.3, 0.7);
+  const input = stack.page.locator('.cp-node-input');
+  await until('the draft input to appear', async () => (await input.count()) > 0);
+  await input.fill('Never created');
+  await stack.page.keyboard.press('Escape');
+
+  await until('the draft to disappear', async () => (await input.count()) === 0);
+  const after = await stack.graph('create-inline');
+  assert.equal(after.rev, before.rev, 'an abandoned draft must not touch the server');
+  assert.equal(after.nodes.length, before.nodes.length);
+});
+
+test('a node renames inline, and an unchanged label emits no op', async () => {
+  const seedIn = await freshDiagram('rename-inline');
+  const id = await seedIn('Rename me', 0, 0);
+  const node = stack.page.locator(`.react-flow__node[data-id="${id}"]`);
+  const input = stack.page.locator(`.react-flow__node[data-id="${id}"] .cp-node-input`);
+  const labelOf = async () =>
+    (await stack.graph('rename-inline')).nodes.find((n: any) => n.id === id)?.data?.label;
+
+  await node.dblclick();
+  await until('the rename input to appear', async () => (await input.count()) > 0);
+  await input.fill('Renamed inline');
+  await stack.page.keyboard.press('Enter');
+  await until('the rename to reach the server', async () => (await labelOf()) === 'Renamed inline');
+
+  // Escape reverts.
+  await node.dblclick();
+  await until('the input to reappear', async () => (await input.count()) > 0);
+  await input.fill('Discarded');
+  // Click into the field before the key: `fill` alone has proved unreliable at holding
+  // focus here, and a key sent to the wrong element makes this look like a product bug.
+  await input.click();
+  await stack.page.keyboard.press('Escape');
+  await until('the input to close', async () => (await input.count()) === 0);
+  assert.equal(await labelOf(), 'Renamed inline', 'Escape must revert');
+
+  // An unchanged label is not a change.
+  const before = (await stack.graph('rename-inline')).rev;
+  await node.dblclick();
+  await until('the input to reappear', async () => (await input.count()) > 0);
+  await input.click();
+  await stack.page.keyboard.press('Enter');
+  await until('the input to close', async () => (await input.count()) === 0);
+  assert.equal(
+    (await stack.graph('rename-inline')).rev,
+    before,
+    'an unchanged label must emit no op',
+  );
+});
+
+// React Flow deletes the selection on Backspace. If the inline input let the key through,
+// typing a label would destroy the node being renamed — silently, with no error surface.
+test('Backspace inside the rename input does not delete the node', async () => {
+  const seedIn = await freshDiagram('rename-keys');
+  const id = await seedIn('Keep me', 0, 0);
+  const input = stack.page.locator(`.react-flow__node[data-id="${id}"] .cp-node-input`);
+
+  await stack.page.locator(`.react-flow__node[data-id="${id}"]`).click();
+  await stack.page.locator(`.react-flow__node[data-id="${id}"]`).dblclick();
+  await until('the rename input to appear', async () => (await input.count()) > 0);
+
+  await input.fill('x');
+  await stack.page.keyboard.press('Backspace');
+  await stack.page.keyboard.press('Backspace');
+  await stack.page.keyboard.press('Escape');
+  await until('the input to close', async () => (await input.count()) === 0);
+
+  const still = (await stack.graph('rename-keys')).nodes.find((n: any) => n.id === id);
+  assert.ok(still, 'Backspace in the input deleted the node');
+  assert.equal(still.data.label, 'Keep me', 'and the label is untouched');
 });
