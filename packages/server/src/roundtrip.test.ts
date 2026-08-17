@@ -179,10 +179,18 @@ test('a node dropped on the canvas lands at the drop point', async () => {
   );
   assert.ok(pushed);
 
-  const graph = await until('drop to reach disk', async () => {
-    const g = await readGraphFile();
-    return g.nodes.find((n: any) => n.id === 'dropped') ? g : null;
-  });
+  // Generous because this waits on a *disk* write, which is debounced and capped at 500ms
+  // but still competes for CPU — it failed twice at 4s while a headless browser was running
+  // alongside. The assertion is unchanged; only the patience is. A real failure to persist
+  // still fails, it just takes longer to say so.
+  const graph = await until(
+    'drop to reach disk',
+    async () => {
+      const g = await readGraphFile();
+      return g.nodes.find((n: any) => n.id === 'dropped') ? g : null;
+    },
+    15_000,
+  );
   assert.deepEqual(
     graph.nodes.find((n: any) => n.id === 'dropped').position,
     { x: 900, y: 615 },

@@ -310,6 +310,29 @@ body,
   box-shadow: 0 0 0 1px #bfd3fb;
 }
 
+/*
+ * Editing an edge label. `.edge-label` is click-through so clicks reach the edge beneath,
+ * which would make the field unfocusable — this re-enables pointer events for it alone.
+ */
+.edge-label.editing {
+  pointer-events: all;
+  min-width: 40px;
+  box-shadow: 0 0 0 1px #2563eb;
+}
+
+.cp-edge-input {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #1f2937;
+  font: inherit;
+  text-align: center;
+}
+
+.cp-edge-input:focus {
+  outline: none;
+}
+
 /* The label is click-through; this button must not be. */
 .edge-delete {
   position: absolute;

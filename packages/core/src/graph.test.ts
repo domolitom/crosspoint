@@ -699,3 +699,28 @@ test('a pinned size round-trips through serialisation', () => {
 test('an auto-sized node serialises with no size key', () => {
   assert.ok(!serialize(build()).includes('"size"'));
 });
+
+test('an empty edge label removes the key rather than storing an empty string', () => {
+  let g = build();
+  g = applyOp(g, { op: 'update_edge', id: 'auth-service->database', label: 'reads' });
+  assert.equal(g.edges[0].label, 'reads');
+
+  g = applyOp(g, { op: 'update_edge', id: 'auth-service->database', label: '' });
+  assert.ok(!('label' in g.edges[0]), 'the key is gone, not set to ""');
+  // Check the serialised *edge*, not the whole file — every node carries a label in its
+  // data, so grepping the text for `"label"` always matches and asserts nothing.
+  const written = JSON.parse(serialize(g)) as Graph;
+  assert.ok(!('label' in written.edges[0]), 'and it does not reach the file');
+});
+
+test('clearing a label leaves the colour alone', () => {
+  let g = build();
+  g = applyOp(g, {
+    op: 'update_edge',
+    id: 'auth-service->database',
+    label: 'reads',
+    color: 'red',
+  });
+  g = applyOp(g, { op: 'update_edge', id: 'auth-service->database', label: '' });
+  assert.equal(g.edges[0].color, 'red');
+});
