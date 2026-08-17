@@ -57,13 +57,18 @@ const diagramParam = z
  * Colour is meaning, not decoration — it is the one presentational thing on the agent
  * surface, and it earns its place because a coloured node is usually a statement.
  */
-const colorSchema = z
-  .enum(['slate', 'amber', 'red', 'green', 'blue', 'violet', 'none'])
-  .describe(
-    'Colour the node, by name. Use it to say something — amber for "needs attention", ' +
-      'red for "broken", green for "done" — not to decorate. Pass "none" to clear it. ' +
-      'The human sees the same six colours in their palette, so this is shared vocabulary.',
-  );
+const colorSchemaFor = (subject: 'node' | 'edge') =>
+  z
+    .enum(['slate', 'amber', 'red', 'green', 'blue', 'violet', 'none'])
+    .describe(
+      `Colour the ${subject}, by name. Use it to say something — amber for "needs ` +
+        'attention", red for "broken", green for "done" — not to decorate. Pass "none" to ' +
+        'clear it. Nodes and edges share one palette, so the same name means the same ' +
+        'thing on either, and the human sees those six colours in their own palette.',
+    );
+
+const colorSchema = colorSchemaFor('node');
+const edgeColorSchema = colorSchemaFor('edge');
 
 const ok = (payload: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
@@ -202,6 +207,7 @@ server.registerTool(
             source: z.string().describe('Id of the node the edge leaves.'),
             target: z.string().describe('Id of the node the edge enters.'),
             label: z.string().optional().describe('Optional text on the edge.'),
+            color: edgeColorSchema.optional(),
           }),
         )
         .describe('Edges between the nodes above, by id. Pass an empty array for none.'),
@@ -225,10 +231,11 @@ server.registerTool(
       source: z.string().describe('Id of the node the edge leaves.'),
       target: z.string().describe('Id of the node the edge enters.'),
       label: z.string().optional().describe('Optional text on the edge.'),
+      color: edgeColorSchema.optional(),
     },
   },
-  async ({ source, target, label }) =>
-    ok(await applyOp({ op: 'add_edge', source, target, label })),
+  async ({ source, target, label, color }) =>
+    ok(await applyOp({ op: 'add_edge', source, target, label, color })),
 );
 
 server.registerTool(
@@ -282,13 +289,19 @@ server.registerTool(
   'update_edge',
   {
     title: 'Update edge',
-    description: "Change an edge's label.",
+    description:
+      "Change an edge's label or colour. Both are optional, so pass only what you mean " +
+      'to change — setting a colour leaves the label alone and vice versa.',
     inputSchema: {
       id: z.string().describe('Id of the edge to change.'),
-      label: z.string().describe('New label text; pass an empty string to clear it.'),
+      label: z
+        .string()
+        .optional()
+        .describe('New label text; pass an empty string to clear it.'),
+      color: edgeColorSchema.optional(),
     },
   },
-  async ({ id, label }) => ok(await applyOp({ op: 'update_edge', id, label })),
+  async ({ id, label, color }) => ok(await applyOp({ op: 'update_edge', id, label, color })),
 );
 
 server.registerTool(
