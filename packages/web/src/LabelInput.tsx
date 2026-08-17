@@ -28,6 +28,14 @@ export interface LabelInputProps {
    * once committed.
    */
   autoWidth?: boolean;
+  /**
+   * Treat an empty value as a real commit rather than a cancel.
+   *
+   * A node must have a label, so clearing one is meaningless and is treated as "changed my
+   * mind". An edge label is optional, so emptying it is a deliberate act — the only way to
+   * remove text you no longer want on an arrow.
+   */
+  allowEmpty?: boolean;
   /** Called with the trimmed value. Never called with an empty string or an unchanged one. */
   onCommit: (label: string) => void;
   onCancel: () => void;
@@ -39,6 +47,7 @@ export function LabelInput({
   ariaLabel,
   className,
   autoWidth = false,
+  allowEmpty = false,
   onCommit,
   onCancel,
 }: LabelInputProps) {
@@ -71,10 +80,11 @@ export function LabelInput({
       const next = value.trim();
       // An unchanged label is not a change. This project already carries one no-op
       // `move_node` bug; a no-op rename would be the same fault twice.
-      if (commit && next && next !== initial.trim()) onCommit(next);
+      const changed = next !== initial.trim();
+      if (commit && changed && (next || allowEmpty)) onCommit(next);
       else onCancel();
     },
-    [value, initial, onCommit, onCancel],
+    [value, initial, allowEmpty, onCommit, onCancel],
   );
 
   const field = (

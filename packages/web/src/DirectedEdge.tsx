@@ -7,6 +7,8 @@ import {
 } from '@xyflow/react';
 import type { NodeColor } from '@crosspoint/core';
 
+import { LabelInput } from './LabelInput';
+
 import { EDGE_SELECTED } from './colors';
 
 export type DirectedEdgeData = {
@@ -25,6 +27,11 @@ export type DirectedEdgeData = {
    * whenever the handles already face each other, using `0.5 * distance` instead.
    */
   labelOffset?: number;
+  /** True while this edge's label is being edited in place. */
+  editing?: boolean;
+  /** Called with the new text. An empty string means "remove the label". */
+  onLabelCommit?: (label: string) => void;
+  onLabelCancel?: () => void;
 };
 
 export function DirectedEdge({
@@ -74,13 +81,34 @@ export function DirectedEdge({
     <>
       <BaseEdge id={id} path={path} markerEnd={markerEnd} style={stroke} />
       <EdgeLabelRenderer>
-        {label && (
+        {data?.editing ? (
+          /* Editing sits exactly where the label sits, so the text does not appear to move
+             when you start typing. `edge-label` is click-through, so the editing wrapper
+             needs its own class to be focusable at all. */
           <div
-            className={selected ? 'edge-label selected' : 'edge-label'}
+            className="edge-label editing"
             style={{ transform: `translate(-50%, -50%) translate(${x}px, ${y}px)` }}
           >
-            {label}
+            <LabelInput
+              initial={label ? String(label) : ''}
+              placeholder="label"
+              ariaLabel="Edge label"
+              className="cp-edge-input"
+              autoWidth
+              allowEmpty
+              onCommit={(next) => data.onLabelCommit?.(next)}
+              onCancel={() => data.onLabelCancel?.()}
+            />
           </div>
+        ) : (
+          label && (
+            <div
+              className={selected ? 'edge-label selected' : 'edge-label'}
+              style={{ transform: `translate(-50%, -50%) translate(${x}px, ${y}px)` }}
+            >
+              {label}
+            </div>
+          )
         )}
         {selected && data?.onDelete && (
           <button

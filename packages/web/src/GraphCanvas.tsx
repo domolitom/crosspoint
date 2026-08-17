@@ -90,6 +90,7 @@ function GraphCanvasInner({
   const [draft, setDraft] = useState<{ screen: Position; flow: Position } | null>(null);
   /** Id of the node whose label is being edited in place. */
   const [editing, setEditing] = useState<string | null>(null);
+  const [editingEdge, setEditingEdge] = useState<string | null>(null);
 
   const emit = useCallback((op: GraphOp) => sendOp(op, diagram), [sendOp, diagram]);
 
@@ -292,6 +293,20 @@ function GraphCanvasInner({
     setEditing(node.id);
   }, []);
 
+  const onEdgeDoubleClick = useCallback((_: unknown, edge: Edge) => {
+    setEditingEdge(edge.id);
+  }, []);
+
+  const commitEdgeLabel = useCallback(
+    (id: string, label: string) => {
+      // An empty string clears the label — `update_edge` treats it that way, and it is the
+      // only way to take text off an arrow again.
+      emit({ op: 'update_edge', id, label });
+      setEditingEdge(null);
+    },
+    [emit],
+  );
+
   /**
    * Create by double-clicking empty canvas.
    *
@@ -416,11 +431,29 @@ function GraphCanvasInner({
     [nodes, editing, commitRename, commitResize],
   );
 
+  const displayEdges = useMemo(
+    () =>
+      edges.map((edge) =>
+        edge.id === editingEdge
+          ? {
+              ...edge,
+              data: {
+                ...edge.data,
+                editing: true,
+                onLabelCommit: (label: string) => commitEdgeLabel(edge.id, label),
+                onLabelCancel: () => setEditingEdge(null),
+              },
+            }
+          : edge,
+      ),
+    [edges, editingEdge, commitEdgeLabel],
+  );
+
   return (
     <div className="canvas-wrapper" ref={wrapper}>
     <ReactFlow
       nodes={displayNodes}
-      edges={edges}
+      edges={displayEdges}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
       onNodesChange={onNodesChange}
@@ -437,6 +470,7 @@ function GraphCanvasInner({
       onNodesDelete={onNodesDelete}
       onEdgesDelete={onEdgesDelete}
       onNodeDoubleClick={onNodeDoubleClick}
+      onEdgeDoubleClick={onEdgeDoubleClick}
       // Double-click creates a node, so it must not also zoom the canvas.
       zoomOnDoubleClick={false}
       snapToGrid
