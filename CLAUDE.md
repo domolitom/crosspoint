@@ -64,7 +64,8 @@ wrote.
 
 ### Coordinates never reach the agent's write surface
 
-`StructuralOp` carries no coordinates; `LayoutOp` (`move_node`, `add_node_at`) does. Only
+`StructuralOp` carries no coordinates; `LayoutOp` (`move_node`, `add_node_at`, `resize_node`)
+does. Only
 structural ops are exposed over MCP, so **there is deliberately no `move_node` tool**. The
 agent cannot express a position, so it cannot overwrite one.
 
@@ -132,7 +133,7 @@ The two disagree in both directions, which is the point:
 | --- | --- | --- | --- |
 | `align`, `distribute` | `false` | `layout` | names no coordinate, so an agent may issue it — but only moves boxes, so it is noise |
 | `add_node_at` | `true` | `structural` | names a coordinate, so agents cannot issue it — but creates a node, which is always the message |
-| `move_node` | `true` | `layout` | both |
+| `move_node`, `resize_node` | `true` | `layout` | both |
 | `generate_graph` | `false` | `structural` | server computes the geometry, and creating a diagram *is* the message |
 
 `kindOf` used to be derived from `isLayoutOp`, and that produced a real bug: a node dragged
@@ -200,6 +201,29 @@ the normal already reverses for the opposite edge, so negating it too cancels ou
 but placement runs on the server with no DOM, so it estimates. A shared width constant made
 wide nodes overlap by 110px. The regression guard is the mixed short/long-label overlap test —
 a test using only short labels will not catch it.
+
+**Everything measuring a node must go through `nodeSize`.** A hand-resized node carries a
+`size` and is *wider than its label estimate*, so any code still estimating reasons about a
+smaller box than the one on screen — the 110px overlap above, returning by a second route.
+`placeNode` and `arrange.ts` both route through it. The guard mixes pinned and auto-sized
+nodes; note the test helper `findOverlap` must measure via `nodeSize` too, or it will compare
+a 900px box against its 120px estimate and assert nothing.
+
+**A pinned node size needs the CSS clamp released, not just an inline width.**
+`.react-flow__node-default` sets `max-width: 320px` to stop *auto* sizing running away on a
+long label. That cap still applies to an inline width, so a node pinned to 900px rendered at
+320 and every attempt to drag it wider looked like it snapped back. `cp-sized` sets
+`max-width: none; min-width: 0`. This passed all four resize tests until one pinned a width
+*beyond* 320 — under the cap nothing notices, so the regression test must exceed it.
+
+**React Flow's resize handles scale with the canvas.** At low zoom they are sub-pixel and
+ungrabbable, so a resize drag silently does nothing. `freshDiagram` in the e2e suite exists
+for this: it isolates a test in its own diagram so `fitView` does not zoom out. A probe that
+skipped it measured a node at 60x20 and reported resizing as broken when it was not.
+
+**Dragging a top or left resize handle also moves the origin.** Size and position are separate
+facts here, so `commitResize` emits `move_node` alongside `resize_node` only when the origin
+actually changed — a bottom-right drag stays one op.
 
 **Workspace scripts run with the package as cwd.** `npm run dev -w @crosspoint/server` created
 its graph in `packages/server/` until the root script started passing an absolute path.
