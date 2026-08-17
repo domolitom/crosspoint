@@ -1,4 +1,5 @@
 import type { Graph, GraphOp } from '@crosspoint/core';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { GraphCanvas } from './GraphCanvas';
 
@@ -11,6 +12,52 @@ import { GraphCanvas } from './GraphCanvas';
  * One panel at a time. Lensing deeper replaces the contents and pushes onto the trail,
  * which is what keeps arbitrary depth from turning into a heap of overlapping windows.
  */
+
+const DEFAULT_SIZE = { w: 420, h: 320 };
+const MIN_SIZE = { w: 260, h: 200 };
+
+interface Size {
+  w: number;
+  h: number;
+}
+
+const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min), max);
+
+/**
+ * Panel size is remembered per diagram, in localStorage rather than in the graph.
+ *
+ * It is presentation state, the same category as zoom and scroll offset: it describes a
+ * window, not the diagram inside it. Putting it in the graph file would push pixels of
+ * chrome into what the agent reads and into the change feed, for something that is not
+ * part of anyone's message. Keyed by diagram, not by node, because a dense subgraph wants
+ * a big panel whichever node happens to link to it.
+ */
+const sizeKey = (diagram: string) => `crosspoint.lens.size.${diagram}`;
+
+function loadSize(diagram: string | undefined): Size {
+  if (!diagram) return DEFAULT_SIZE;
+  try {
+    const raw = window.localStorage.getItem(sizeKey(diagram));
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<Size>;
+      if (typeof parsed.w === 'number' && typeof parsed.h === 'number') {
+        return { w: parsed.w, h: parsed.h };
+      }
+    }
+  } catch {
+    // A quota error or private-mode block must not stop the panel from opening.
+  }
+  return DEFAULT_SIZE;
+}
+
+function saveSize(diagram: string | undefined, size: Size): void {
+  if (!diagram) return;
+  try {
+    window.localStorage.setItem(sizeKey(diagram), JSON.stringify(size));
+  } catch {
+    // Losing a remembered size is not worth surfacing an error for.
+  }
+}
 
 export interface LensStep {
   /** Node whose badge was clicked, in the diagram one level up. */
@@ -41,19 +88,65 @@ export function SubcanvasPanel({
   onClose,
 }: SubcanvasPanelProps) {
   const current = trail[trail.length - 1];
+  const diagram = current?.diagram;
+
+  // Hooks run before the early return below, so they cannot be called conditionally.
+  const [size, setSize] = useState<Size>(() => loadSize(diagram));
+  const latest = useRef(size);
+  latest.current = size;
+  /** Pointer origin and the size at grab time; null when not resizing. */
+  const from = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+
+  // Lensing deeper swaps which diagram the panel shows, so pick up that one's size.
+  useEffect(() => {
+    setSize(loadSize(diagram));
+  }, [diagram]);
+
+  const onResizeDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    // Without this the drag reaches the canvas underneath and starts a selection box.
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    from.current = {
+      x: event.clientX,
+      y: event.clientY,
+      w: latest.current.w,
+      h: latest.current.h,
+    };
+  }, []);
+
+  const onResizeMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const start = from.current;
+    if (!start) return;
+    setSize({
+      w: clamp(start.w + (event.clientX - start.x), MIN_SIZE.w, window.innerWidth - 32),
+      h: clamp(start.h + (event.clientY - start.y), MIN_SIZE.h, window.innerHeight - 72),
+    });
+  }, []);
+
+  const onResizeUp = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!from.current) return;
+      from.current = null;
+      event.currentTarget.releasePointerCapture(event.pointerId);
+      // Persist on release rather than per frame: one write per gesture, not per pixel.
+      saveSize(diagram, latest.current);
+    },
+    [diagram],
+  );
+
   if (!current) return null;
 
   // Anchored beside the node, then clamped into the viewport so a node near the right or
-  // bottom edge does not open a panel half off-screen.
-  const width = 420;
-  const height = 320;
-  const left = Math.min(current.anchor.x + 24, window.innerWidth - width - 16);
-  const top = Math.min(Math.max(current.anchor.y - 40, 56), window.innerHeight - height - 16);
+  // bottom edge does not open a panel half off-screen. Uses the live size, so a resized
+  // panel stays on screen rather than being clamped against its original dimensions.
+  const left = Math.min(current.anchor.x + 24, window.innerWidth - size.w - 16);
+  const top = Math.min(Math.max(current.anchor.y - 40, 56), window.innerHeight - size.h - 16);
 
   return (
     <aside
       className="lens-panel"
-      style={{ left, top, width, height }}
+      style={{ left, top, width: size.w, height: size.h }}
       aria-label={`Subcanvas ${current.diagram}`}
     >
       <header className="lens-panel-bar">
@@ -91,6 +184,17 @@ export function SubcanvasPanel({
           variant="panel"
         />
       </div>
+
+      <div
+        className="lens-resize"
+        role="separator"
+        aria-label="Resize subcanvas"
+        title="Drag to resize"
+        onPointerDown={onResizeDown}
+        onPointerMove={onResizeMove}
+        onPointerUp={onResizeUp}
+        onPointerCancel={onResizeUp}
+      />
     </aside>
   );
 }
