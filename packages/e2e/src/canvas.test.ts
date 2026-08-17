@@ -679,3 +679,128 @@ test('closing the panel leaves the main canvas intact', async () => {
   );
   assert.equal((await stack.graph()).nodes.length, before, 'closing changed nothing');
 });
+
+/**
+ * Resizing the panel.
+ *
+ * These seed their own node and subcanvas rather than inheriting whatever the previous
+ * test left open — an earlier draft chained off that state and failed for reasons that had
+ * nothing to do with resizing.
+ *
+ * The sharpest assertion is a negative one: a resize must produce no op and no rev change.
+ * Panel size is presentation state, and this project has already shipped one stray no-op
+ * `move_node`, so a gesture that quietly writes to the graph is a live risk.
+ */
+
+/** Seed a node with a subcanvas, reload, and open its panel. Returns the panel box. */
+async function openFreshPanel(label: string, name: string, y: number) {
+  const node = await seed(label, 300, y);
+  await seedSubcanvas(node, name);
+  await openCanvas(stack);
+  await until('the seeded node to render', async () =>
+    (await stack.page.locator(`.react-flow__node[data-id="${node}"]`).count()) > 0,
+  );
+  await stack.page.locator(`.react-flow__node[data-id="${node}"] .cp-lens`).click();
+  await until('the panel to open', async () =>
+    (await stack.page.locator('.lens-panel').count()) > 0,
+  );
+  const box = await stack.page.locator('.lens-panel').boundingBox();
+  assert.ok(box, 'the panel has no bounding box');
+  return box;
+}
+
+async function dragGrip(dx: number, dy: number) {
+  const grip = await stack.page.locator('.lens-panel .lens-resize').boundingBox();
+  assert.ok(grip, 'the resize grip is not rendered');
+  const from = { x: grip.x + grip.width / 2, y: grip.y + grip.height / 2 };
+
+  // Confirm the grip is the topmost element at that point. A silent miss here looks
+  // exactly like "resizing is broken", and cost real time before this check existed.
+  const hit = await stack.page.evaluate(
+    ({ x, y }) => {
+      const el = document.elementFromPoint(x, y);
+      const panel = document.querySelector('.lens-panel') as HTMLElement | null;
+      return {
+        at: el ? `${el.tagName}.${el.className}` : 'nothing',
+        view: `${window.innerWidth}x${window.innerHeight}`,
+        panel: panel ? `${panel.style.left} ${panel.style.top} ${panel.style.width}` : 'none',
+      };
+    },
+    { x: from.x, y: from.y },
+  );
+  assert.match(
+    hit.at,
+    /lens-resize/,
+    `grip at (${from.x},${from.y}) hit ${hit.at}; viewport ${hit.view}; panel ${hit.panel}`,
+  );
+
+  await dragMouse(stack.page, from, { x: from.x + dx, y: from.y + dy });
+}
+
+/** The same clamp the component applies, so expectations survive a small viewport. */
+async function expectedSize(w: number, h: number) {
+  const view = await stack.page.evaluate(() => ({
+    w: window.innerWidth,
+    h: window.innerHeight,
+  }));
+  return {
+    w: Math.min(Math.max(w, 260), view.w - 32),
+    h: Math.min(Math.max(h, 200), view.h - 72),
+  };
+}
+
+test('dragging the grip resizes the panel', async () => {
+  const before = await openFreshPanel('Resize me', 'resize-impl', 900);
+  const revBefore = (await stack.graph()).rev;
+
+  await dragGrip(120, 80);
+
+  const want = await expectedSize(before.width + 120, before.height + 80);
+  const after = await until('the panel to grow', async () => {
+    const box = await stack.page.locator('.lens-panel').boundingBox();
+    return box && Math.abs(box.width - want.w) < 24 ? box : null;
+  });
+
+  assert.ok(
+    Math.abs(after.height - want.h) < 24,
+    `height ${before.height} -> ${after.height}, expected about ${want.h}`,
+  );
+
+  // The point: this resized a window, not a diagram.
+  assert.equal((await stack.graph()).rev, revBefore, 'resizing must not touch the graph');
+});
+
+test('the panel refuses to shrink below its minimum', async () => {
+  await dragGrip(-900, -900);
+
+  const box = await stack.page.locator('.lens-panel').boundingBox();
+  assert.ok(box, 'the panel vanished');
+  assert.ok(box.width >= 260 && box.width < 290, `width clamped to 260, got ${box.width}`);
+  assert.ok(box.height >= 200 && box.height < 230, `height clamped to 200, got ${box.height}`);
+});
+
+test('a resized panel is remembered for that diagram', async () => {
+  await dragGrip(180, 130);
+  const resized = await stack.page.locator('.lens-panel').boundingBox();
+  assert.ok(resized, 'no box after resizing');
+  assert.ok(resized.width > 300, `expected a grown panel, got ${resized.width}`);
+
+  await stack.page.locator('.lens-panel .lens-close').click();
+  await until('the panel to close', async () =>
+    (await stack.page.locator('.lens-panel').count()) === 0,
+  );
+
+  const linked = (await stack.graph()).nodes.find(
+    (n: any) => n.data.subcanvas === 'resize-impl',
+  );
+  await stack.page.locator(`.react-flow__node[data-id="${linked.id}"] .cp-lens`).click();
+  const reopened = await until('the panel to reopen', async () => {
+    const box = await stack.page.locator('.lens-panel').boundingBox();
+    return box ?? null;
+  });
+
+  assert.ok(
+    Math.abs(reopened.width - resized.width) < 4 && Math.abs(reopened.height - resized.height) < 4,
+    `reopened ${reopened.width}x${reopened.height}, expected ${resized.width}x${resized.height}`,
+  );
+});

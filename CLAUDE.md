@@ -226,6 +226,17 @@ selection may be inside a panel, so a bare list of ids is not enough to know whe
 defects were invisible for exactly this reason. Verify canvas changes by driving a real
 browser and asserting against the HTTP API — not by reasoning about the code.
 
+**The lens panel must be `position: fixed`.** Its `left`/`top` come from a screen-pixel
+anchor clamped against `window.innerWidth`/`innerHeight`. While it was `absolute` those
+coordinates resolved against a positioned ancestor below the header, so the panel rendered
+~51px lower than computed and its bottom fell off a short viewport — which made the resize
+grip literally unclickable at 1280x800 while working fine at 1300x900.
+
+**When a browser interaction "does nothing", hit-test the point before debugging the
+handler.** `document.elementFromPoint(x, y)` returning `nothing` means the coordinate is
+outside the viewport, which is a positioning bug, not an event-wiring bug. The e2e resize
+helper asserts this and reports the viewport and panel geometry on failure; keep that.
+
 ## Built since the reframing
 
 Check the code, not this list, for what exists — but these are done and covered by tests:
