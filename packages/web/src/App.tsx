@@ -28,14 +28,15 @@ export default function App() {
    * diagram has to travel with it — colouring a panel node must write to that subcanvas,
    * not to whatever happens to be active behind it.
    */
-  const [selection, setSelection] = useState<{ diagram: string; ids: string[] }>({
-    diagram: '',
-    ids: [],
-  });
+  const [selection, setSelection] = useState<{
+    diagram: string;
+    nodes: string[];
+    edges: string[];
+  }>({ diagram: '', nodes: [], edges: [] });
   /** The open lens, deepest last. Empty means no panel. */
   const [trail, setTrail] = useState<LensStep[]>([]);
 
-  const selectedIds = selection.ids;
+  const selectedCount = selection.nodes.length + selection.edges.length;
 
   const closePanel = useCallback(() => setTrail([]), []);
 
@@ -112,13 +113,14 @@ export default function App() {
     [trail, openLens],
   );
 
-  // Colour applies to the selection, so colouring three nodes emits three narrow ops —
-  // the same shape as a multi-node drag.
+  // Colour applies to the whole selection, so colouring three things emits three narrow
+  // ops — the same shape as a multi-node drag. Nodes and edges take different ops, and a
+  // mixed selection gets both.
   const applyColor = useCallback(
     (color: ColorInput) => {
-      for (const id of selection.ids) {
-        sendOp({ op: 'update_node', id, color }, selection.diagram || undefined);
-      }
+      const target = selection.diagram || undefined;
+      for (const id of selection.nodes) sendOp({ op: 'update_node', id, color }, target);
+      for (const id of selection.edges) sendOp({ op: 'update_edge', id, color }, target);
     },
     [selection, sendOp],
   );
@@ -174,11 +176,11 @@ export default function App() {
         <div
           className="colours"
           role="group"
-          aria-label="Node colour"
+          aria-label="Colour"
           title={
-            selectedIds.length
-              ? `Colour ${selectedIds.length} selected node${selectedIds.length > 1 ? 's' : ''}`
-              : 'Select a node first'
+            selectedCount
+              ? `Colour ${selectedCount} selected item${selectedCount > 1 ? 's' : ''}`
+              : 'Select a node or edge first'
           }
         >
           {NODE_COLORS.map((color) => (
@@ -187,7 +189,7 @@ export default function App() {
               type="button"
               className={`swatch cp-swatch-${color}`}
               aria-label={color}
-              disabled={selectedIds.length === 0}
+              disabled={selectedCount === 0}
               onClick={() => applyColor(color)}
             />
           ))}
@@ -195,7 +197,7 @@ export default function App() {
             type="button"
             className="swatch swatch-clear"
             aria-label="no colour"
-            disabled={selectedIds.length === 0}
+            disabled={selectedCount === 0}
             onClick={() => applyColor('none')}
           >
             ×
@@ -217,7 +219,7 @@ export default function App() {
             diagram={diagram}
             sendOp={sendOp}
             onLens={onLensFromMain}
-            onSelectionChange={(ids) => setSelection({ diagram, ids })}
+            onSelectionChange={(sel) => setSelection({ diagram, ...sel })}
           />
         )}
 
@@ -227,7 +229,7 @@ export default function App() {
             graph={graphs[current.diagram] ?? null}
             sendOp={sendOp}
             onLens={onLensFromPanel}
-            onSelectionChange={(ids) => setSelection({ diagram: current.diagram, ids })}
+            onSelectionChange={(sel) => setSelection({ diagram: current.diagram, ...sel })}
             onBack={(depth) => setTrail((prev) => prev.slice(0, depth))}
             onClose={closePanel}
           />

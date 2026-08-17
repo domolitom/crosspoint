@@ -5,10 +5,15 @@ import {
   type Edge,
   type EdgeProps,
 } from '@xyflow/react';
+import type { NodeColor } from '@crosspoint/core';
+
+import { EDGE_SELECTED } from './colors';
 
 export type DirectedEdgeData = {
   /** Sends delete_edge. The edge disappears when the server pushes back, not on click. */
   onDelete?: () => void;
+  /** This edge's assigned palette colour, if any. Absent means uncoloured. */
+  color?: NodeColor;
   /**
    * Perpendicular shift for the label, in pixels.
    *
@@ -53,7 +58,17 @@ export function DirectedEdge({
   const x = labelX + (-dy / length) * offset;
   const y = labelY + (dx / length) * offset;
 
-  const stroke = selected ? { ...style, stroke: '#2563eb', strokeWidth: 2.5 } : style;
+  /*
+   * Selection thickens the line but never repaints a coloured one.
+   *
+   * The palette acts on the current selection, so the edge you just coloured is selected by
+   * definition. Overriding the stroke would make applying a colour appear to do nothing
+   * until you clicked away — which reads as "edge colouring is broken". An uncoloured edge
+   * has no colour to preserve, so it keeps the blue selection tint.
+   */
+  const stroke = selected
+    ? { ...style, stroke: data?.color ? style?.stroke : EDGE_SELECTED, strokeWidth: 3 }
+    : style;
 
   return (
     <>

@@ -302,11 +302,15 @@ body,
 }
 
 /*
- * The only place the actual colour values live. The graph stores names, so a reader —
- * human or agent — sees "amber" rather than a hex value that means nothing to them.
+ * Node colour values. The graph stores names, so a reader — human or agent — sees "amber"
+ * rather than a hex value that means nothing to them.
  *
  * Pale fill against a saturated border, with the node's own dark text left alone: white
  * text on these fills would be unreadable.
+ *
+ * Edges use the same palette but need the values in JavaScript, because an arrowhead is an
+ * SVG marker a stylesheet cannot reach — see `colors.ts`. The saturated tone there matches
+ * the border colours here, so an amber node and an amber edge agree.
  */
 .react-flow__node.cp-color-slate {
   background: #f1f5f9;

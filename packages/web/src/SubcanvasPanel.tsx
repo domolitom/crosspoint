@@ -1,7 +1,7 @@
 import type { Graph, GraphOp } from '@crosspoint/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { GraphCanvas } from './GraphCanvas';
+import { GraphCanvas, type CanvasSelection } from './GraphCanvas';
 
 /**
  * A subcanvas, floating over the canvas next to the node it belongs to.
@@ -73,7 +73,7 @@ export interface SubcanvasPanelProps {
   graph: Graph | null;
   sendOp: (op: GraphOp, diagram?: string) => void;
   onLens: (node: { id: string; label: string; subcanvas?: string }) => void;
-  onSelectionChange: (ids: string[]) => void;
+  onSelectionChange: (selected: CanvasSelection) => void;
   onBack: (depth: number) => void;
   onClose: () => void;
 }

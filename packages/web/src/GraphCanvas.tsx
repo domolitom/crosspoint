@@ -18,6 +18,7 @@ import type { Graph, GraphOp, NodeColor } from '@crosspoint/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { CanvasNode } from './CanvasNode';
+import { strokeFor } from './colors';
 import { DirectedEdge } from './DirectedEdge';
 
 /**
@@ -28,7 +29,6 @@ import { DirectedEdge } from './DirectedEdge';
  * for the panel would drift out of step with the real one, and the drift would be silent.
  */
 
-const EDGE_COLOR = '#7b8494';
 // Module scope: a fresh object each render remounts every node and edge.
 const edgeTypes = { directed: DirectedEdge };
 const nodeTypes = { default: CanvasNode };
@@ -43,9 +43,19 @@ export interface GraphCanvasProps {
   sendOp: (op: GraphOp, diagram?: string) => void;
   /** Called when a node's lens badge is clicked. Omit to hide every badge. */
   onLens?: (node: { id: string; label: string; subcanvas?: string }) => void;
-  onSelectionChange?: (ids: string[]) => void;
+  /**
+   * Nodes and edges are reported separately because colouring them takes different ops —
+   * `update_node` against one, `update_edge` against the other. A flat list of ids would
+   * leave the caller unable to tell which it was holding.
+   */
+  onSelectionChange?: (selected: CanvasSelection) => void;
   /** The panel drops the minimap and controls; there is no room for them. */
   variant?: 'main' | 'panel';
+}
+
+export interface CanvasSelection {
+  nodes: string[];
+  edges: string[];
 }
 
 export function GraphCanvas(props: GraphCanvasProps) {
@@ -118,6 +128,10 @@ function GraphCanvasInner({
       const previous = new Map(prev.map((e) => [e.id, e]));
       return graph.edges.map((edge) => {
         const reciprocal = pairs.has(`${edge.target}|${edge.source}`);
+        // The arrowhead takes the same colour as the line. React Flow bakes the colour into
+        // the marker definition, so a stylesheet cannot reach it — leaving it out gives a
+        // coloured edge ending in a grey arrow, which reads as a bug rather than a choice.
+        const stroke = strokeFor(edge.color);
         return {
           id: edge.id,
           type: 'directed',
@@ -129,13 +143,16 @@ function GraphCanvasInner({
           selected: previous.get(edge.id)?.selected,
           // The model has always been directed — source and target are not interchangeable.
           // The arrowhead just makes the canvas say what the data already says.
-          markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: EDGE_COLOR },
-          style: { stroke: EDGE_COLOR, strokeWidth: 1.5 },
+          markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: stroke },
+          style: { stroke, strokeWidth: 1.5 },
           // One constant, not a per-edge sign: the normal is computed from the
           // source→target axis, which already points the opposite way for the reverse
           // edge. Flipping the sign as well would cancel that out and stack them again.
           data: {
             labelOffset: reciprocal ? 22 : 0,
+            // So the edge can keep its own colour while selected rather than being
+            // overpainted with the selection tint.
+            color: edge.color,
             // Select-then-Delete is invisible unless you already know about it, so a
             // selected edge also offers a click target.
             onDelete: () => emit({ op: 'delete_edge', id: edge.id }),
@@ -155,24 +172,44 @@ function GraphCanvasInner({
     return () => clearTimeout(timer);
   }, [diagram, fitView]);
 
+  /*
+   * Selection is reported from both handlers, so each needs the other's current value.
+   * Refs rather than state: these are read inside a setState callback, where reading state
+   * would see the value from the render that installed the handler.
+   */
+  const selectedNodes = useRef<string[]>([]);
+  const selectedEdges = useRef<string[]>([]);
+  const reportSelection = useCallback(() => {
+    onSelectionChange?.({ nodes: selectedNodes.current, edges: selectedEdges.current });
+  }, [onSelectionChange]);
+
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       // Applied locally so dragging stays at 60fps. Only drag-stop is persisted —
       // intermediate positions are animation, not data.
       setNodes((ns) => {
         const next = applyNodeChanges(changes, ns);
-        onSelectionChange?.(next.filter((n) => n.selected).map((n) => n.id));
+        selectedNodes.current = next.filter((n) => n.selected).map((n) => n.id);
+        reportSelection();
         return next;
       });
     },
-    [onSelectionChange],
+    [reportSelection],
   );
 
-  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
-    // Selection changes arrive here. Without this, clicking an edge never marks it
-    // selected, so Delete has nothing to act on and onEdgesDelete never fires.
-    setEdges((es) => applyEdgeChanges(changes, es));
-  }, []);
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      // Selection changes arrive here. Without this, clicking an edge never marks it
+      // selected, so Delete has nothing to act on and onEdgesDelete never fires.
+      setEdges((es) => {
+        const next = applyEdgeChanges(changes, es);
+        selectedEdges.current = next.filter((e) => e.selected).map((e) => e.id);
+        reportSelection();
+        return next;
+      });
+    },
+    [reportSelection],
+  );
 
   // React Flow passes every dragged node as the third argument. Reading only the second
   // moved the whole selection on screen but persisted just the node under the cursor, so
