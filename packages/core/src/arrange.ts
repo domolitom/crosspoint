@@ -1,5 +1,5 @@
 import { GraphError } from './errors.js';
-import { estimateNodeHeight, estimateNodeWidth, snapPosition } from './placement.js';
+import { nodeSize, snapPosition } from './placement.js';
 import type { AlignEdge, DistributeAxis, Graph, GraphNode, Position } from './types.js';
 
 /**
@@ -38,15 +38,14 @@ function boxes(graph: Graph, ids: string[], what: string): Box[] {
     if (!node) throw new GraphError(`No node with id "${id}"`);
     if (!node.position) throw new GraphError(`Node "${id}" has no position yet`);
 
-    const label = String(node.data?.label ?? node.id);
     return {
       node,
       x: node.position.x,
       y: node.position.y,
       // Real per-node sizes: centring a wide box and a narrow one against one shared
-      // constant puts neither where it belongs.
-      w: estimateNodeWidth(label),
-      h: estimateNodeHeight(label),
+      // constant puts neither where it belongs. `nodeSize` prefers a pinned size, so
+      // right-aligning a manually widened node lines up its actual edge.
+      ...nodeSize(node),
     };
   });
 }

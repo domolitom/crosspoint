@@ -73,7 +73,7 @@ export const withoutLayout = (entries: LogEntry[]): LogEntry[] =>
  *
  * The question here is only ever "did this change what exists, or just where it sits".
  */
-const REARRANGING_OPS = new Set(['move_node', 'align', 'distribute']);
+const REARRANGING_OPS = new Set(['move_node', 'resize_node', 'align', 'distribute']);
 
 export const kindOf = (op: LoggedOp): ChangeKind =>
   op.op === 'external_edit'
@@ -136,6 +136,10 @@ export function describeOp(op: LoggedOp): string {
     }
     case 'move_node':
       return `moved ${op.id}`;
+    // No pixel values, for the same reason `moved` omits coordinates: a summary carries what
+    // happened, and the numbers are noise to whoever reads it.
+    case 'resize_node':
+      return `resized ${op.id}`;
     case 'align': {
       // "left edges" reads better than "left edge" for a group, and centre alignment is an
       // axis rather than an edge at all.

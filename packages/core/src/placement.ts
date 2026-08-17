@@ -1,4 +1,4 @@
-import type { GraphNode, Position } from './types.js';
+import type { GraphNode, Position, Size } from './types.js';
 
 /**
  * Seed placement for nodes that arrive without coordinates.
@@ -46,6 +46,28 @@ export function estimateNodeHeight(label: string): number {
   return NODE_HEIGHT + (lines - 1) * LINE_HEIGHT;
 }
 
+/**
+ * How big a node actually is: its pinned size if it has one, otherwise its estimate.
+ *
+ * Everything that reasons about node geometry must go through here. A manually widened node
+ * is *wider than its estimate*, so any code still estimating would place or align against a
+ * footprint smaller than the box on screen — reintroducing the overlap that size-aware
+ * placement was written to fix, by a different route.
+ */
+export function nodeSize(node: GraphNode): Size {
+  if (node.size) return { w: node.size.w, h: node.size.h };
+  const label = String(node.data?.label ?? node.id);
+  return { w: estimateNodeWidth(label), h: estimateNodeHeight(label) };
+}
+
+/** Snap a pinned size to the grid, with a floor so a node cannot be dragged to nothing. */
+export const snapSize = (size: Size): Size => ({
+  w: Math.max(snap(size.w), MIN_NODE_WIDTH),
+  // Deliberately no maximum. MAX_NODE_WIDTH caps *auto* sizing so a long label cannot run
+  // away; a human overriding that is the entire point of resizing by hand.
+  h: Math.max(snap(size.h), NODE_HEIGHT),
+});
+
 interface Box {
   x: number;
   y: number;
@@ -53,11 +75,10 @@ interface Box {
   h: number;
 }
 
-const boxFor = (position: Position, label: string): Box => ({
+const boxFor = (position: Position, node: GraphNode): Box => ({
   x: position.x,
   y: position.y,
-  w: estimateNodeWidth(label),
-  h: estimateNodeHeight(label),
+  ...nodeSize(node),
 });
 
 /**
@@ -85,10 +106,9 @@ export interface PlacementHint {
  * that collides with nothing.
  */
 export function placeNode(nodes: GraphNode[], hint: PlacementHint = {}): Position {
-  // Each existing node contributes its own estimated footprint, not a shared constant.
-  const placed: Box[] = nodes
-    .filter((n) => n.position != null)
-    .map((n) => boxFor(n.position!, String(n.data?.label ?? n.id)));
+  // Each existing node contributes its own real footprint — pinned size when it has one,
+  // estimate otherwise — rather than a shared constant.
+  const placed: Box[] = nodes.filter((n) => n.position != null).map((n) => boxFor(n.position!, n));
 
   const own = { w: estimateNodeWidth(hint.label ?? ''), h: estimateNodeHeight(hint.label ?? '') };
   const anchor = resolveAnchor(placed, nodes, hint, own);
@@ -121,7 +141,9 @@ function resolveAnchor(
     const target = nodes.find((n) => n.id === hint.near);
     if (target?.position) {
       // Below the anchor node — reads as "downstream of" in most diagrams.
-      const height = estimateNodeHeight(String(target.data?.label ?? target.id));
+      // The anchor's real height, so a manually heightened node is cleared rather than
+      // overlapped by whatever gets placed below it.
+      const height = nodeSize(target).h;
       return { x: target.position.x, y: target.position.y + height + GAP };
     }
   }

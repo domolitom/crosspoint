@@ -14,6 +14,9 @@ export function serialize(graph: Graph): string {
     nodes: graph.nodes.map((n) => ({
       id: n.id,
       position: n.position ? { x: n.position.x, y: n.position.y } : undefined,
+      // Between position and data, and omitted entirely when unset — an auto-sized node
+      // must read as untouched in the file, the way an uncoloured one carries no colour.
+      ...(n.size === undefined ? {} : { size: { w: n.size.w, h: n.size.h } }),
       data: orderKeys(n.data),
     })),
     edges: graph.edges.map((e) => ({

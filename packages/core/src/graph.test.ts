@@ -8,6 +8,7 @@ import {
   MAX_NODE_WIDTH,
   MIN_NODE_WIDTH,
   NODE_HEIGHT,
+  nodeSize,
   placeNode,
 } from './placement.js';
 import { parse, serialize } from './serialize.js';
@@ -32,18 +33,20 @@ test('duplicate labels get distinct ids', () => {
   assert.deepEqual(g.nodes.map((n) => n.id), ['worker', 'worker-2']);
 });
 
-/** Do any two nodes' estimated rectangles intersect? */
+/**
+ * Do any two nodes' rectangles intersect?
+ *
+ * Measures via `nodeSize`, so a manually resized node counts at its pinned size. Using the
+ * label estimate here would make the mixed manual/auto test pass while measuring a 900px box
+ * as its ~120px estimate — the guard would assert nothing.
+ */
 function findOverlap(g: Graph): string | null {
-  const boxes = g.nodes.map((n) => {
-    const label = String(n.data.label);
-    return {
-      id: n.id,
-      x: n.position!.x,
-      y: n.position!.y,
-      w: estimateNodeWidth(label),
-      h: estimateNodeHeight(label),
-    };
-  });
+  const boxes = g.nodes.map((n) => ({
+    id: n.id,
+    x: n.position!.x,
+    y: n.position!.y,
+    ...nodeSize(n),
+  }));
   for (let i = 0; i < boxes.length; i++) {
     for (let j = i + 1; j < boxes.length; j++) {
       const a = boxes[i];
@@ -588,4 +591,111 @@ test('an edge colour reaches the agent view and survives serialisation', () => {
 
   const round = normalize(parse(serialize(g)));
   assert.equal(round.edges[0].color, 'green', 'colour survives a save and load');
+});
+
+/*
+ * Manual node sizing. Auto by default, a drag pins it — the same "engine seeds, human pins"
+ * rule position follows.
+ */
+
+test('resizing pins a size, snapped to the grid', () => {
+  const g = applyOp(build(), { op: 'resize_node', id: 'database', size: { w: 247, h: 133 } });
+  assert.deepEqual(g.nodes.find((n) => n.id === 'database')!.size, { w: 240, h: 135 });
+});
+
+test('an unresized node carries no size at all', () => {
+  const g = build();
+  assert.ok(g.nodes.every((n) => n.size === undefined), 'auto-sized nodes stay unpinned');
+});
+
+test('resizing enforces a floor but deliberately no ceiling', () => {
+  let g = applyOp(build(), { op: 'resize_node', id: 'database', size: { w: 5, h: 5 } });
+  const floored = g.nodes.find((n) => n.id === 'database')!.size!;
+  assert.equal(floored.w, MIN_NODE_WIDTH, 'a node cannot be dragged to nothing');
+  assert.equal(floored.h, NODE_HEIGHT);
+
+  // The cap exists to stop *auto* sizing running away on a long label. Overriding it is the
+  // entire point of resizing by hand, so it must not be clamped.
+  g = applyOp(g, { op: 'resize_node', id: 'database', size: { w: 900, h: 600 } });
+  const wide = g.nodes.find((n) => n.id === 'database')!.size!;
+  assert.ok(wide.w > MAX_NODE_WIDTH, `expected past the auto cap, got ${wide.w}`);
+});
+
+test('nodeSize prefers a pinned size over the estimate', () => {
+  const g = applyOp(build(), { op: 'resize_node', id: 'database', size: { w: 600, h: 300 } });
+  const node = g.nodes.find((n) => n.id === 'database')!;
+  assert.deepEqual(nodeSize(node), { w: 600, h: 300 });
+  const auto = g.nodes.find((n) => n.id === 'auth-service')!;
+  assert.equal(nodeSize(auto).w, estimateNodeWidth('Auth service'));
+});
+
+test('normalize passes a hand-written size through verbatim', () => {
+  const g = normalize({
+    rev: 0,
+    nodes: [{ id: 'a', position: { x: 0, y: 0 }, size: { w: 412, h: 207 }, data: { label: 'A' } }],
+    edges: [],
+  });
+  assert.deepEqual(g.nodes[0].size, { w: 412, h: 207 }, 'loading must not resize what was pinned');
+});
+
+// The regression this feature could reintroduce: a manually widened node is wider than its
+// estimate, so placement that still estimates drops new nodes on top of it. A test using
+// only auto-sized nodes cannot catch this.
+test('placement clears manually resized nodes, not just their estimates', () => {
+  let g = applyOp(emptyGraph(), { op: 'add_node', label: 'Wide' });
+  g = applyOp(g, { op: 'move_node', id: 'wide', position: { x: 0, y: 0 } });
+  g = applyOp(g, { op: 'resize_node', id: 'wide', size: { w: 900, h: 450 } });
+
+  for (const label of ['a', 'b', 'c', 'd', 'e']) g = applyOp(g, { op: 'add_node', label });
+
+  assert.equal(findOverlap(g), null);
+});
+
+test('a structural op never disturbs a pinned size', () => {
+  let g = applyOp(build(), { op: 'resize_node', id: 'database', size: { w: 450, h: 210 } });
+  const pinned = { ...g.nodes.find((n) => n.id === 'database')!.size! };
+
+  const ops = [
+    { op: 'update_node', id: 'database', label: 'Postgres' },
+    { op: 'update_node', id: 'database', color: 'amber' },
+    { op: 'add_node', label: 'Queue' },
+    { op: 'add_edge', source: 'database', target: 'auth-service' },
+  ] as const;
+
+  for (const op of ops) {
+    g = applyOp(g, op);
+    assert.deepEqual(
+      g.nodes.find((n) => n.id === 'database')!.size,
+      pinned,
+      `${op.op} disturbed a pinned size`,
+    );
+  }
+});
+
+test('the agent view exposes no size', () => {
+  const g = applyOp(build(), { op: 'resize_node', id: 'database', size: { w: 600, h: 300 } });
+  const serialized = JSON.stringify(structuralView(g));
+  assert.ok(!serialized.includes('size'), 'node geometry must not reach the agent surface');
+  assert.ok(!serialized.includes('600'));
+});
+
+test('a pinned size round-trips through serialisation', () => {
+  const g = applyOp(build(), { op: 'resize_node', id: 'database', size: { w: 300, h: 150 } });
+  const text = serialize(g);
+  assert.match(text, /"size": \{/);
+  assert.deepEqual(normalize(parse(text)).nodes.find((n) => n.id === 'database')!.size, {
+    w: 300,
+    h: 150,
+  });
+  // Stable ordering: size sits between position and data.
+  const node = text.slice(text.indexOf('"id": "database"'));
+  assert.ok(
+    node.indexOf('"position"') < node.indexOf('"size"') &&
+      node.indexOf('"size"') < node.indexOf('"data"'),
+    'size must serialise between position and data',
+  );
+});
+
+test('an auto-sized node serialises with no size key', () => {
+  assert.ok(!serialize(build()).includes('"size"'));
 });

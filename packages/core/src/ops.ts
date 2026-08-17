@@ -2,7 +2,7 @@ import { alignNodes, distributeNodes } from './arrange.js';
 import { GraphError } from './errors.js';
 import { generateGraph } from './generate.js';
 import { slugify, uniqueId } from './ids.js';
-import { placeNode, snapPosition } from './placement.js';
+import { placeNode, snapPosition, snapSize } from './placement.js';
 import {
   NODE_COLORS,
   type ColorInput,
@@ -86,7 +86,9 @@ export function normalize(graph: Graph): Graph {
       ...node,
       data: { ...node.data, label: node.data?.label ?? node.id },
       // Hand-written positions are passed through verbatim — loading a file must not
-      // rewrite the human's coordinates. Snapping applies to drags and seeds only.
+      // rewrite the human's coordinates. Snapping applies to drags and seeds only. A
+      // hand-written `size` rides along in the spread for exactly the same reason: opening
+      // a file must not resize what someone pinned by hand.
       position:
         node.position ?? placeNode(nodes, { label: String(node.data?.label ?? node.id) }),
     });
@@ -253,6 +255,16 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
         nodes: graph.nodes.map((n) =>
           n.id === op.id ? { ...n, position: snapPosition(op.position) } : n,
         ),
+      };
+    }
+
+    case 'resize_node': {
+      requireNode(graph, op.id, 'id');
+      // Storing a size is what pins the node: from here on it keeps this box instead of
+      // tracking its label, exactly as a stored position stops it being re-seeded.
+      return {
+        ...next,
+        nodes: graph.nodes.map((n) => (n.id === op.id ? { ...n, size: snapSize(op.size) } : n)),
       };
     }
   }

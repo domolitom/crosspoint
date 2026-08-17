@@ -12,10 +12,27 @@ export interface Position {
   y: number;
 }
 
+export interface Size {
+  w: number;
+  h: number;
+}
+
 export interface GraphNode {
   id: string;
   /** Absent means "not placed yet"; the server assigns one via placement. */
   position?: Position;
+  /**
+   * Absent means "size me from my label"; present means the human has pinned it.
+   *
+   * The same rule as `position`: the engine seeds, the human pins, and once pinned the
+   * human's value wins permanently. A node nobody has resized carries no size key at all,
+   * so it keeps tracking its text.
+   *
+   * A sibling of `position` rather than a member of `data` on purpose. `data` is the bag
+   * `structuralView` hands to the agent, and node geometry has no business on that surface
+   * — living out here means the existing read path excludes it without a special case.
+   */
+  size?: Size;
   data: NodeData;
 }
 
@@ -196,10 +213,12 @@ export type StructuralOp =
  */
 export type LayoutOp =
   | { op: 'move_node'; id: string; position: Position }
-  | { op: 'add_node_at'; label: string; position: Position; data?: Record<string, unknown> };
+  | { op: 'add_node_at'; label: string; position: Position; data?: Record<string, unknown> }
+  /** Pin a node's size. Pixels, so canvas-only — an agent cannot express one. */
+  | { op: 'resize_node'; id: string; size: Size };
 
 export type GraphOp = StructuralOp | LayoutOp;
 
-const LAYOUT_OPS = new Set(['move_node', 'add_node_at']);
+const LAYOUT_OPS = new Set(['move_node', 'add_node_at', 'resize_node']);
 
 export const isLayoutOp = (op: GraphOp): op is LayoutOp => LAYOUT_OPS.has(op.op);
