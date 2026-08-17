@@ -65,7 +65,11 @@ function mergeNodeData(
  */
 function mergeEdge(current: GraphEdge, change: { label?: string; color?: ColorInput }): GraphEdge {
   const edge: GraphEdge = { ...current };
-  if (change.label !== undefined) edge.label = change.label;
+  // An empty label removes the key rather than storing `""`, matching how `color` and a
+  // node's `subcanvas` clear. An edge with no text should read as untouched in the file,
+  // not carry an empty string into every diff.
+  if (change.label === '') delete edge.label;
+  else if (change.label !== undefined) edge.label = change.label;
   if (change.color === 'none') delete edge.color;
   else if (change.color !== undefined) edge.color = change.color;
   return edge;
