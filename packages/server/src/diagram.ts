@@ -2,6 +2,11 @@ import { readFile, rename, writeFile } from 'node:fs/promises';
 
 import { normalize, parse, serialize, type Graph } from '@crosspoint/core';
 
+/** Coalesce a burst of ops into one write. */
+const PERSIST_DEBOUNCE = 80;
+/** Ceiling on how long the file may trail memory, however many ops keep arriving. */
+const MAX_PERSIST_DELAY = 500;
+
 export class StaleRevError extends Error {
   constructor(readonly expected: number, readonly actual: number) {
     super(`Stale write: based on rev ${expected}, current rev is ${actual}`);
@@ -21,6 +26,8 @@ export class DiagramFile {
   /** Last text this process wrote, used to tell our own writes from external ones. */
   private lastWritten = '';
   private persistTimer?: NodeJS.Timeout;
+  /** When the oldest unwritten change arrived, so the debounce cannot starve the write. */
+  private pendingSince: number | null = null;
 
   constructor(
     readonly name: string,
@@ -86,14 +93,35 @@ export class DiagramFile {
     }
   }
 
+  /**
+   * Coalesce writes, but never postpone one indefinitely.
+   *
+   * A plain debounce restarted its timer on every op, so a stream arriving faster than the
+   * delay deferred the write for as long as the stream lasted — an agent firing rapid ops
+   * over localhost does exactly that. The op log is written per-op so nothing was ever
+   * unrecoverable, but the file could sit arbitrarily stale behind it.
+   */
   private schedulePersist(): void {
+    if (this.pendingSince === null) this.pendingSince = Date.now();
+    const waited = Date.now() - this.pendingSince;
+
+    if (waited >= MAX_PERSIST_DELAY) {
+      void this.persistNow();
+      return;
+    }
+
     if (this.persistTimer) clearTimeout(this.persistTimer);
     this.persistTimer = setTimeout(() => {
       void this.persistNow();
-    }, 80);
+    }, Math.min(PERSIST_DEBOUNCE, MAX_PERSIST_DELAY - waited));
   }
 
   async persistNow(): Promise<void> {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = undefined;
+    }
+    this.pendingSince = null;
     const text = serialize(this.graph);
     if (text === this.lastWritten) return;
     this.lastWritten = text;

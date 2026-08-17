@@ -442,3 +442,24 @@ test('an unknown edge colour is refused at the API boundary', async () => {
   assert.equal(status, 400);
   assert.match(body.error, /Unknown colour/);
 });
+
+// A plain debounce restarted its timer on every op, so a stream arriving faster than the
+// delay deferred the write for as long as the stream lasted. This drives that stream.
+test('a sustained stream of ops cannot postpone the write indefinitely', async () => {
+  await op({ op: 'add_node', label: 'Streamed' });
+
+  const started = Date.now();
+  let landed = 0;
+  // Keep firing inside the 80ms debounce window for well over the 500ms ceiling.
+  while (Date.now() - started < 900) {
+    await op({ op: 'move_node', id: 'streamed', position: { x: landed % 300, y: 0 } });
+    landed++;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+
+  const graph = JSON.parse(await readFile(graphPath, 'utf8'));
+  assert.ok(
+    graph.nodes.some((n: any) => n.id === 'streamed'),
+    `after ${landed} ops over ${Date.now() - started}ms the node had still not reached disk`,
+  );
+});
