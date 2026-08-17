@@ -402,3 +402,43 @@ test('align refuses ids it cannot use', async () => {
   assert.equal(lonely.status, 400);
   assert.match(lonely.body.error, /at least two nodes/);
 });
+
+// Edge colour follows node colour: structural, so it must survive the layout filter.
+test('an edge colour round-trips to disk and reaches the feed', async () => {
+  await op({ op: 'add_node', label: 'Try' });
+  await op({ op: 'add_node', label: 'Fail' });
+  await op({ op: 'add_edge', source: 'try', target: 'fail' });
+  const base = (await api('/api/graph')).body.rev;
+
+  await op({ op: 'move_node', id: 'try', position: { x: 450, y: 450 } });
+  await op({ op: 'update_edge', id: 'try->fail', color: 'red' });
+
+  const { body } = await api(`/api/changes?since=${base}`);
+  assert.deepEqual(
+    body.entries.map((e: any) => e.op.op),
+    ['update_edge'],
+    'the edge colour survives, the move does not',
+  );
+  assert.equal(body.entries[0].kind, 'structural');
+  assert.match(body.summary, /coloured red/);
+
+  const graph = await until('edge colour to reach disk', async () => {
+    const g = await readGraphFile();
+    return g.edges.find((e: any) => e.id === 'try->fail')?.color === 'red' ? g : null;
+  });
+  assert.equal(graph.edges.find((e: any) => e.id === 'try->fail').color, 'red');
+
+  await op({ op: 'update_edge', id: 'try->fail', color: 'none' });
+  const cleared = await until('edge colour to clear on disk', async () => {
+    const g = await readGraphFile();
+    const edge = g.edges.find((e: any) => e.id === 'try->fail');
+    return edge && !('color' in edge) ? g : null;
+  });
+  assert.ok(cleared, 'the colour key is gone rather than set to a sentinel');
+});
+
+test('an unknown edge colour is refused at the API boundary', async () => {
+  const { status, body } = await op({ op: 'update_edge', id: 'try->fail', color: 'puce' });
+  assert.equal(status, 400);
+  assert.match(body.error, /Unknown colour/);
+});
