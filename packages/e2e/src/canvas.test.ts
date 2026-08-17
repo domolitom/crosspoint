@@ -938,11 +938,20 @@ test('one swatch click colours a mixed node and edge selection', async () => {
   );
 
   const edge = 'mixed-src->mixed-dst';
-  await stack.page.locator('.react-flow__node[data-id="mixed-src"]').click();
-  await stack.page
-    .locator(`.react-flow__edge[data-id="${edge}"] .react-flow__edge-path`)
-    .click({ modifiers: ['Meta'], force: true });
+  /*
+   * Retry the pair of clicks rather than firing them once and waiting.
+   *
+   * A single attempt is load-sensitive: under a full-suite run a click can land before
+   * React Flow has finished mounting and fitting the view, and then no amount of waiting
+   * recovers it — the click is simply gone. This failed once in a full run while passing
+   * standalone. Re-clicking is faithful to what the test is about, which is that one swatch
+   * colours a mixed selection, not that a single click always registers.
+   */
   await until('both a node and an edge to be selected', async () => {
+    await stack.page.locator('.react-flow__node[data-id="mixed-src"]').click();
+    await stack.page
+      .locator(`.react-flow__edge[data-id="${edge}"] .react-flow__edge-path`)
+      .click({ modifiers: ['Meta'], force: true });
     const n = await stack.page.locator('.react-flow__node.selected').count();
     const e = await stack.page.locator('.react-flow__edge.selected').count();
     return n === 1 && e === 1;
@@ -1335,4 +1344,81 @@ test('a size pinned beyond the auto cap renders at full width', async () => {
 
   assert.equal(measured.h, 300);
   assert.equal(measured.maxWidth, 'none', 'the auto-sizing cap must be released when pinned');
+});
+
+/** Wait for the inline field to actually hold focus: it focuses on the next frame, so
+ *  keystrokes sent immediately after it appears go to the document instead. */
+async function awaitFocus(selector: string) {
+  await until(`${selector} to hold focus`, () =>
+    stack.page.evaluate(
+      (sel) => document.activeElement?.matches(sel) ?? false,
+      selector,
+    ),
+  );
+}
+
+/**
+ * Editing edge text.
+ *
+ * Edges have carried a `label` since the beginning, but until now only an agent could set
+ * one — there was no `onEdgeDoubleClick` and no editing UI, so a human could see a label
+ * and never write one.
+ */
+test('double-clicking an edge edits its label in place', async () => {
+  const seedIn = await freshDiagram('edge-label');
+  const src = await seedIn('From', 0, 0);
+  const dst = await seedIn('To', 0, 240);
+  await stack.op({ op: 'add_edge', source: src, target: dst }, 'edge-label');
+  const edgeId = `${src}->${dst}`;
+
+  const path = `.react-flow__edge[data-id="${edgeId}"] .react-flow__edge-path`;
+  await until('the edge to render', async () => (await stack.page.locator(path).count()) > 0);
+
+  await stack.page.locator(path).dblclick({ force: true });
+  await stack.page.waitForSelector('.cp-edge-input');
+  await awaitFocus('.cp-edge-input');
+  await stack.page.keyboard.type('reads from');
+  await stack.page.keyboard.press('Enter');
+
+  const labelled = await until('the label to reach the server', async () => {
+    const edge = (await stack.graph('edge-label')).edges.find((e: any) => e.id === edgeId);
+    return edge?.label ? edge : null;
+  });
+  assert.equal(labelled.label, 'reads from');
+});
+
+// Clearing must remove the key, not store "", matching how colour and subcanvas clear.
+test('emptying an edge label removes it rather than storing an empty string', async () => {
+  const edges = (await stack.graph('edge-label')).edges;
+  const edgeId = edges.find((e: any) => e.label === 'reads from')?.id;
+  assert.ok(edgeId, 'expected the labelled edge from the previous test');
+
+  // Dispatched rather than clicked: a labelled, selected edge has its × sitting over the
+  // path midpoint, so a positional double-click lands on delete instead. The test above
+  // already proves the edge is hittable; this one is about what clearing does.
+  const path = `.react-flow__edge[data-id="${edgeId}"] .react-flow__edge-path`;
+  await stack.page.locator(path).dispatchEvent('dblclick');
+  await stack.page.waitForSelector('.cp-edge-input');
+  await awaitFocus('.cp-edge-input');
+  await stack.page.keyboard.press('ControlOrMeta+a');
+  await stack.page.keyboard.press('Backspace');
+  await stack.page.keyboard.press('Enter');
+
+  const cleared = await until('the label to be gone', async () => {
+    const edge = (await stack.graph('edge-label')).edges.find((e: any) => e.id === edgeId);
+    return edge && !('label' in edge) ? edge : null;
+  });
+  assert.ok(!('label' in cleared), 'the key is absent, not empty');
+});
+
+test('double-clicking an edge does not also create a node', async () => {
+  const before = (await stack.graph('edge-label')).nodes.length;
+  await stack.page.locator('.react-flow__edge .react-flow__edge-path').first().dblclick({ force: true });
+  await stack.page.waitForTimeout(400);
+  await stack.page.keyboard.press('Escape');
+  assert.equal(
+    (await stack.graph('edge-label')).nodes.length,
+    before,
+    'the pane double-click handler must not fire for an edge',
+  );
 });
