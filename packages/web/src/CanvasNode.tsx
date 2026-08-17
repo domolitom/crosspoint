@@ -38,6 +38,7 @@ export function CanvasNode({ data }: NodeProps<Node<CanvasNodeData>>) {
           initial={data.label}
           ariaLabel="Node label"
           className="cp-node-input"
+          autoWidth
           onCommit={(label) => data.onRename?.(label)}
           onCancel={() => data.onCancelRename?.()}
         />

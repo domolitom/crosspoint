@@ -215,17 +215,44 @@ body,
 }
 
 /* Sized to the node it sits inside, so the box does not jump when editing starts. */
-.cp-node-input {
+/*
+ * Renaming happens *in* the label, not in a field that appears inside the node.
+ *
+ * The earlier version drew its own border and background, so a node being renamed showed a
+ * box inside a box — and claimed an input's default ~20ch width, which stretched the node
+ * while the text stayed the same length. Now the text simply becomes editable: same font,
+ * same alignment, no chrome, and the width tracks the string via the ghost below.
+ */
+.cp-input-sizer {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.cp-input-ghost {
+  /* Hidden but still laid out — this is what gives the box its width. */
+  visibility: hidden;
+  white-space: pre;
+  font: inherit;
+}
+
+.cp-input-sizer > .cp-node-input {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  box-sizing: border-box;
-  padding: 2px 4px;
-  border: 1px solid #2563eb;
-  border-radius: 4px;
-  background: #fff;
-  color: #1f2937;
-  font-size: 13px;
-  font-family: inherit;
-  text-align: center;
+}
+
+.cp-node-input {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+}
+
+.cp-node-input:focus {
+  outline: none;
 }
 
 /* The draft node's input, placed over the canvas at the point that was double-clicked. */

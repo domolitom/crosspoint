@@ -18,6 +18,16 @@ export interface LabelInputProps {
   placeholder?: string;
   ariaLabel: string;
   className?: string;
+  /**
+   * Size the field to its text instead of letting it claim an input's intrinsic width.
+   *
+   * An `<input>` is about 20 characters wide by default, and a node is `width: fit-content`,
+   * so a plain field made the node jump to ~178px the moment you started renaming it — the
+   * box grew while the text stayed put. A hidden ghost holding the same string drives the
+   * width, with the field laid over it, so the node measures exactly what it will measure
+   * once committed.
+   */
+  autoWidth?: boolean;
   /** Called with the trimmed value. Never called with an empty string or an unchanged one. */
   onCommit: (label: string) => void;
   onCancel: () => void;
@@ -28,6 +38,7 @@ export function LabelInput({
   placeholder,
   ariaLabel,
   className,
+  autoWidth = false,
   onCommit,
   onCancel,
 }: LabelInputProps) {
@@ -66,7 +77,7 @@ export function LabelInput({
     [value, initial, onCommit, onCancel],
   );
 
-  return (
+  const field = (
     <input
       ref={input}
       className={className ?? 'cp-label-input'}
@@ -94,5 +105,18 @@ export function LabelInput({
       onDoubleClick={(event) => event.stopPropagation()}
       onBlur={() => finish(true)}
     />
+  );
+
+  if (!autoWidth) return field;
+
+  return (
+    <span className="cp-input-sizer">
+      {/* Holds the same string so the box measures the text, not an input's default width.
+          A single space keeps an empty field from collapsing to nothing. */}
+      <span className="cp-input-ghost" aria-hidden="true">
+        {value || placeholder || ' '}
+      </span>
+      {field}
+    </span>
   );
 }
