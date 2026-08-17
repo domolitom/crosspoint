@@ -28,6 +28,7 @@ const KNOWN_OPS = new Set([
   'align',
   'distribute',
   'move_node',
+  'resize_node',
 ]);
 
 const server = createServer(async (req, res) => {

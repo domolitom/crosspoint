@@ -463,3 +463,30 @@ test('a sustained stream of ops cannot postpone the write indefinitely', async (
     `after ${landed} ops over ${Date.now() - started}ms the node had still not reached disk`,
   );
 });
+
+// Sizing is pixels, so it belongs in the same category as a move: persisted and pushed, but
+// filtered out of the feed a reader treats as the message.
+test('a resize reaches disk and the client, and is filtered from the feed', async () => {
+  await op({ op: 'add_node', label: 'Sizable' });
+  const base = (await api('/api/graph')).body.rev;
+  await op({ op: 'resize_node', id: 'sizable', size: { w: 420, h: 225 } });
+
+  const node = await until('the size to reach disk', async () => {
+    const graph = JSON.parse(await readFile(graphPath, 'utf8'));
+    const found = graph.nodes.find((n: any) => n.id === 'sizable');
+    return found?.size ? found : null;
+  });
+  assert.deepEqual(node.size, { w: 420, h: 225 });
+
+  const { body: filtered } = await api(`/api/changes?since=${base}`);
+  assert.ok(
+    !filtered.entries.some((e: any) => e.op.op === 'resize_node'),
+    'a resize is layout noise, not part of the message',
+  );
+
+  const { body: full } = await api(`/api/changes?since=${base}&include_layout=true`);
+  const entry = full.entries.find((e: any) => e.op.op === 'resize_node');
+  assert.ok(entry, 'but it is still on the record when asked for');
+  assert.equal(entry.kind, 'layout');
+  assert.match(full.summary, /resized sizable/);
+});
