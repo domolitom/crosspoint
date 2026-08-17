@@ -804,3 +804,190 @@ test('a resized panel is remembered for that diagram', async () => {
     `reopened ${reopened.width}x${reopened.height}, expected ${resized.width}x${resized.height}`,
   );
 });
+
+/**
+ * Edge colour.
+ *
+ * Asserted on the rendered SVG, not on a proxy. The swatch bug is the cautionary tale here:
+ * every colour assertion passed while the UI was visibly wrong, because the assertions
+ * measured the wrong element. So these read the `path` stroke and the `marker` that draws
+ * the arrowhead — a coloured line ending in a grey arrow would otherwise pass silently.
+ */
+
+const edgeById = async (id: string) => {
+  const graph = await stack.graph();
+  return graph.edges.find((e: any) => e.id === id);
+};
+
+/** The rendered stroke of an edge's path, and the colour of the marker it points with. */
+async function edgePaint(id: string) {
+  return stack.page.evaluate((edgeId) => {
+    const group = document.querySelector(`.react-flow__edge[data-id="${edgeId}"]`);
+    const path = group?.querySelector('path.react-flow__edge-path') as SVGPathElement | null;
+    if (!path) return null;
+    const stroke = getComputedStyle(path).stroke;
+    // The arrowhead lives in a <marker> in <defs>, referenced by marker-end: url(#id).
+    const ref = path.getAttribute('marker-end') ?? '';
+    const markerId = ref.replace(/^url\(["']?#/, '').replace(/["']?\)$/, '');
+    const marker = markerId ? document.getElementById(markerId) : null;
+    const head = marker?.querySelector('polyline, path') as SVGElement | null;
+    return {
+      stroke,
+      markerStroke: head ? getComputedStyle(head).stroke : null,
+      markerFill: head ? getComputedStyle(head).fill : null,
+    };
+  }, id);
+}
+
+/**
+ * Seed a fresh node pair joined by an edge.
+ *
+ * Labels must be unique per call: `seed` looks its node up by label and returns the *first*
+ * match, so reusing one silently hands back the previous pair's ids.
+ */
+async function seedEdge(tag: string, y: number) {
+  const source = await seed(`${tag} src`, 0, y);
+  const target = await seed(`${tag} dst`, 0, y + 150);
+  const { status } = await stack.op({ op: 'add_edge', source, target });
+  assert.equal(status, 200, 'seeding the edge failed');
+  return { edge: `${source}->${target}`, source, target };
+}
+
+test('a swatch colours a selected edge, line and arrowhead together', async () => {
+  const { edge } = await seedEdge('Paint', 1400);
+  await openCanvas(stack);
+  await until('the edge to render', async () =>
+    (await stack.page.locator(`.react-flow__edge[data-id="${edge}"]`).count()) > 0,
+  );
+
+  const before = await edgePaint(edge);
+  assert.ok(before, 'the edge path did not render');
+
+  await stack.page.locator(`.react-flow__edge[data-id="${edge}"] .react-flow__edge-path`).click({ force: true });
+  const swatch = stack.page.locator('.swatch[aria-label="red"]');
+  await until('the palette to accept an edge selection', async () => !(await swatch.isDisabled()));
+  await swatch.click();
+
+  const stored = await until('the colour to reach the server', async () => {
+    const e = await edgeById(edge);
+    return e?.color === 'red' ? e : null;
+  });
+  assert.equal(stored.color, 'red');
+
+  // Wait for the expected value, not merely for a change: selecting the edge repaints it
+  // blue immediately, so "different from the baseline" is true before the colour lands.
+  const after = await until('the edge to repaint red', async () => {
+    const paint = await edgePaint(edge);
+    return paint && paint.stroke === 'rgb(220, 38, 38)' ? paint : null;
+  });
+  assert.equal(after.stroke, 'rgb(220, 38, 38)', `red stroke should be #dc2626, got ${after.stroke}`);
+  // The easy miss: a coloured line with a grey arrow.
+  assert.equal(
+    after.markerStroke,
+    'rgb(220, 38, 38)',
+    `the arrowhead must match the line, got ${after.markerStroke}`,
+  );
+});
+
+// The palette acts on the selection, so a just-coloured edge is selected by definition. If
+// selection repainted it, applying a colour would look like it did nothing.
+test('a selected coloured edge still shows its own colour', async () => {
+  const graph = await stack.graph();
+  const edge = graph.edges.find((e: any) => e.color === 'red');
+  assert.ok(edge, 'expected the red edge from the previous test');
+
+  const selected = await stack.page.locator(
+    `.react-flow__edge[data-id="${edge.id}"].selected`,
+  ).count();
+  assert.equal(selected, 1, 'the edge should still be selected after colouring');
+
+  const paint = await edgePaint(edge.id);
+  assert.equal(paint!.stroke, 'rgb(220, 38, 38)', 'selection must not repaint a coloured edge');
+});
+
+test('clearing an edge colour restores the default and removes the key', async () => {
+  const graph = await stack.graph();
+  const edge = graph.edges.find((e: any) => e.color === 'red');
+  assert.ok(edge, 'expected a coloured edge');
+
+  await stack.page.locator('.swatch.swatch-clear').click();
+  const cleared = await until('the colour to be cleared', async () => {
+    const e = await edgeById(edge.id);
+    return e && e.color === undefined ? e : null;
+  });
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(cleared, 'color'),
+    'clearing must delete the key, not store a sentinel',
+  );
+
+  // Still selected after clearing, so it falls back to the selection tint rather than the
+  // resting grey. Either is the "no colour of its own" state; asserting the wrong one of
+  // the two is what a change-based wait would have hidden.
+  const paint = await until('the edge to stop being red', async () => {
+    const p = await edgePaint(edge.id);
+    return p && p.stroke === 'rgb(37, 99, 235)' ? p : null;
+  });
+  assert.equal(paint.stroke, 'rgb(37, 99, 235)', `selected-uncoloured stroke, got ${paint.stroke}`);
+});
+
+test('one swatch click colours a mixed node and edge selection', async () => {
+  // Its own diagram, so fitView frames two nodes rather than the twenty this suite has
+  // accumulated — zoomed that far out, a node click lands on empty canvas.
+  await fetch(`${API}/api/diagrams`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'mixed' }),
+  });
+  const { status } = await stack.op(
+    {
+      op: 'generate_graph',
+      nodes: [{ label: 'Mixed src' }, { label: 'Mixed dst' }],
+      edges: [{ source: 'mixed-src', target: 'mixed-dst' }],
+      replace: true,
+    },
+    'mixed',
+  );
+  assert.equal(status, 200, 'seeding the mixed diagram');
+
+  await openCanvas(stack);
+  const switcher = stack.page.locator('.diagram-switcher');
+  await until('the switcher to offer the mixed diagram', async () =>
+    (await switcher.locator('option[value="mixed"]').count()) > 0,
+  );
+  await switcher.selectOption('mixed');
+  await until('the mixed diagram to render', async () =>
+    (await stack.page.locator('.react-flow__node').count()) === 2,
+  );
+
+  const edge = 'mixed-src->mixed-dst';
+  await stack.page.locator('.react-flow__node[data-id="mixed-src"]').click();
+  await stack.page
+    .locator(`.react-flow__edge[data-id="${edge}"] .react-flow__edge-path`)
+    .click({ modifiers: ['Meta'], force: true });
+  await until('both a node and an edge to be selected', async () => {
+    const n = await stack.page.locator('.react-flow__node.selected').count();
+    const e = await stack.page.locator('.react-flow__edge.selected').count();
+    return n === 1 && e === 1;
+  });
+
+  const swatch = stack.page.locator('.swatch[aria-label="green"]');
+  await until('the palette to be usable', async () => !(await swatch.isDisabled()));
+  await swatch.click();
+
+  const both = await until('both to reach the server coloured', async () => {
+    const g = await stack.graph('mixed');
+    const n = g.nodes.find((x: any) => x.id === 'mixed-src');
+    const e = g.edges.find((x: any) => x.id === edge);
+    return n?.data?.color === 'green' && e?.color === 'green' ? { n, e } : null;
+  });
+  assert.equal(both.n.data.color, 'green');
+  assert.equal(both.e.color, 'green');
+
+  // Wait for the repaint rather than asserting straight after the server confirms: the
+  // push and the re-render are separate steps, and reading between them is a race.
+  const paint = await until('the edge to repaint green', async () => {
+    const p = await edgePaint(edge);
+    return p && p.stroke === 'rgb(22, 163, 74)' ? p : null;
+  });
+  assert.equal(paint.stroke, 'rgb(22, 163, 74)', 'green stroke should be #16a34a');
+});
