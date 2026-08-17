@@ -211,7 +211,7 @@ became `Bin 6794 -> 7788 bytes` and grep skipped the file entirely.
 **Each `<ReactFlow>` needs its own `ReactFlowProvider`.** `useReactFlow` resolves to the
 nearest one, so the lens panel sharing the main canvas's store would pan and zoom the canvas
 *behind* it instead of itself — and `screenToFlowPosition` would convert against the wrong
-viewport, dropping palette nodes in the wrong place.
+viewport, creating nodes in the wrong place.
 
 **A canvas must send its own diagram with every op.** `GraphCanvas` is shared between the main
 view and the panel, so an op that omits its target silently lands in whatever is *active* —
@@ -221,6 +221,40 @@ is dropped; keep it that way.
 
 **Selection has to carry its diagram.** The colour palette lives in the header while the
 selection may be inside a panel, so a bare list of ids is not enough to know where to write.
+It also has to distinguish nodes from edges: colouring them takes `update_node` against one
+and `update_edge` against the other, so a flat id list leaves the caller unable to tell which
+it is holding.
+
+**`window.prompt` is banned in this canvas.** It blocks the page, cannot be styled, and the
+user rejected it outright after being interrupted by one on every node creation. There were
+four; all are now inline inputs (`LabelInput`). `grep -rn "window.prompt" packages/web/src`
+should stay empty.
+
+**A node being created must not exist on the server until it is named.** The draft is
+client-side and commits as a single `add_node_at`. Creating an empty node and renaming it
+would put `+ node ""` then `~ node relabelled` into the change feed for *every* creation —
+noise in the one channel that exists to carry meaning — and an abandoned draft would leave
+junk behind needing a third op to remove.
+
+**An inline input must stop its own key events.** React Flow listens for Backspace and Delete
+to remove the selection and for space to pan, so typing a label would delete the node being
+renamed. `LabelInput` calls `stopPropagation` on every key event; there is an e2e test that
+presses Backspace in the field and asserts the node survives.
+
+**v12 has no pane double-click callback.** Node creation listens for `dblclick` on a wrapper
+div and filters to `event.target.classList.contains('react-flow__pane')`, or double-clicking a
+node to rename it would also drop a new node behind it. `zoomOnDoubleClick` must be `false`
+too, or the canvas zooms out from under the caret.
+
+**Edge colour needs its hex in JavaScript, unlike node colour.** An arrowhead is an SVG
+`<marker>` whose colour React Flow bakes into the marker definition, so a stylesheet cannot
+reach it — a coloured line ending in a grey arrow reads as a bug. The values live in
+`packages/web/src/colors.ts` and mirror the node *border* colours in `styles.css`.
+
+**Selection must not repaint a coloured edge.** The palette acts on the selection, so the edge
+just coloured is selected by definition; overriding its stroke would make applying a colour
+appear to do nothing until you clicked away. Selection thickens instead, and only tints an
+edge that has no colour of its own.
 
 **The canvas has no error surface.** A dropped interaction just does nothing. Three separate
 defects were invisible for exactly this reason. Verify canvas changes by driving a real
