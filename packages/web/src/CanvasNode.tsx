@@ -1,5 +1,7 @@
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
+import { LabelInput } from './LabelInput';
+
 /**
  * The node body, replacing React Flow's built-in `default` type.
  *
@@ -18,6 +20,11 @@ export type CanvasNodeData = {
   subcanvas?: string;
   /** Absent in the panel at maximum depth, where lensing further is refused. */
   onLens?: () => void;
+  /** True while this node's label is being edited in place. */
+  editing?: boolean;
+  /** Called with the new label. Not called when the label is unchanged. */
+  onRename?: (label: string) => void;
+  onCancelRename?: () => void;
 };
 
 export function CanvasNode({ data }: NodeProps<Node<CanvasNodeData>>) {
@@ -26,7 +33,17 @@ export function CanvasNode({ data }: NodeProps<Node<CanvasNodeData>>) {
   return (
     <>
       <Handle type="target" position={Position.Top} />
-      <span className="cp-node-label">{data.label}</span>
+      {data.editing ? (
+        <LabelInput
+          initial={data.label}
+          ariaLabel="Node label"
+          className="cp-node-input"
+          onCommit={(label) => data.onRename?.(label)}
+          onCancel={() => data.onCancelRename?.()}
+        />
+      ) : (
+        <span className="cp-node-label">{data.label}</span>
+      )}
       {data.onLens && (
         <button
           type="button"

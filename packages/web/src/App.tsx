@@ -2,7 +2,8 @@ import '@xyflow/react/dist/style.css';
 import { NODE_COLORS, type ColorInput, type GraphOp } from '@crosspoint/core';
 import { useCallback, useState } from 'react';
 
-import { DRAG_TYPE, GraphCanvas } from './GraphCanvas';
+import { GraphCanvas } from './GraphCanvas';
+import { LabelInput } from './LabelInput';
 import { SubcanvasPanel, type LensStep } from './SubcanvasPanel';
 import { useGraph } from './useGraph';
 
@@ -33,6 +34,8 @@ export default function App() {
     nodes: string[];
     edges: string[];
   }>({ diagram: '', nodes: [], edges: [] });
+  /** True while the header is asking for a new diagram name. */
+  const [naming, setNaming] = useState(false);
   /** The open lens, deepest last. Empty means no panel. */
   const [trail, setTrail] = useState<LensStep[]>([]);
 
@@ -53,10 +56,9 @@ export default function App() {
       let name = node.subcanvas;
 
       if (!name) {
-        const suggested = `${slug(node.label) || node.id}-detail`;
-        const chosen = window.prompt('Name for this subcanvas', suggested);
-        if (!chosen?.trim()) return;
-        name = chosen.trim();
+        // Derived, not asked for. Interrupting the gesture to confirm a value we already
+        // computed is exactly the friction being removed; a name can be changed later.
+        name = `${slug(node.label) || node.id}-detail`;
 
         // Create then link. A name already in use is fine to adopt — reusing an existing
         // diagram as a node's detail is a reasonable thing to want.
@@ -125,15 +127,13 @@ export default function App() {
     [selection, sendOp],
   );
 
-  const onCreateDiagram = useCallback(() => {
-    const name = window.prompt('New diagram name');
-    if (name?.trim()) void createDiagram(name.trim());
-  }, [createDiagram]);
-
-  const onPaletteDragStart = useCallback((event: React.DragEvent) => {
-    event.dataTransfer.setData(DRAG_TYPE, 'node');
-    event.dataTransfer.effectAllowed = 'copy';
-  }, []);
+  const onCreateDiagram = useCallback(
+    (name: string) => {
+      setNaming(false);
+      void createDiagram(name);
+    },
+    [createDiagram],
+  );
 
   const current = trail[trail.length - 1];
 
@@ -159,19 +159,26 @@ export default function App() {
             </option>
           ))}
         </select>
-        <button type="button" className="new-diagram" title="New diagram" onClick={onCreateDiagram}>
-          +
-        </button>
+        {naming ? (
+          <LabelInput
+            ariaLabel="New diagram name"
+            placeholder="Diagram name…"
+            className="cp-diagram-input"
+            onCommit={onCreateDiagram}
+            onCancel={() => setNaming(false)}
+          />
+        ) : (
+          <button
+            type="button"
+            className="new-diagram"
+            title="New diagram"
+            onClick={() => setNaming(true)}
+          >
+            +
+          </button>
+        )}
 
-        <div
-          className="palette-node"
-          draggable
-          onDragStart={onPaletteDragStart}
-          title="Drag onto the canvas to add a node"
-        >
-          Node
-        </div>
-        <span className="palette-hint">drag onto the canvas</span>
+        <span className="palette-hint">double-click the canvas to add a node</span>
 
         <div
           className="colours"

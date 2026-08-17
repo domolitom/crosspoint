@@ -13,13 +13,15 @@ import {
   type EdgeChange,
   type Node,
   type NodeChange,
+  type NodeProps,
 } from '@xyflow/react';
-import type { Graph, GraphOp, NodeColor } from '@crosspoint/core';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Graph, GraphOp, NodeColor, Position } from '@crosspoint/core';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { CanvasNode } from './CanvasNode';
 import { strokeFor } from './colors';
 import { DirectedEdge } from './DirectedEdge';
+import { LabelInput } from './LabelInput';
 
 /**
  * One editable canvas over one diagram.
@@ -32,9 +34,6 @@ import { DirectedEdge } from './DirectedEdge';
 // Module scope: a fresh object each render remounts every node and edge.
 const edgeTypes = { directed: DirectedEdge };
 const nodeTypes = { default: CanvasNode };
-
-/** Identifies our own palette drags, so unrelated drops onto the canvas are ignored. */
-export const DRAG_TYPE = 'application/crosspoint-node';
 
 export interface GraphCanvasProps {
   graph: Graph | null;
@@ -81,6 +80,16 @@ function GraphCanvasInner({
   const [edges, setEdges] = useState<Edge[]>([]);
   /** Nodes the user is mid-drag on; server state must not yank them out from under. */
   const dragging = useRef(new Set<string>());
+  /**
+   * The unnamed node being typed. `screen` positions the overlay, `flow` becomes the op.
+   *
+   * A plain overlay rather than a React Flow node: a node kept outside the `nodes` state
+   * never receives its `dimensions` change (applyNodeChanges drops unknown ids), so React
+   * Flow leaves it at `visibility: hidden` forever — present, sized, and invisible.
+   */
+  const [draft, setDraft] = useState<{ screen: Position; flow: Position } | null>(null);
+  /** Id of the node whose label is being edited in place. */
+  const [editing, setEditing] = useState<string | null>(null);
 
   const emit = useCallback((op: GraphOp) => sendOp(op, diagram), [sendOp, diagram]);
 
@@ -271,45 +280,116 @@ function GraphCanvasInner({
     [emit],
   );
 
-  const onNodeDoubleClick = useCallback(
-    (_: unknown, node: Node) => {
-      const label = window.prompt('Label', String(node.data.label ?? ''));
-      if (label != null && label.trim()) {
-        emit({ op: 'update_node', id: node.id, label: label.trim() });
+  const onNodeDoubleClick = useCallback((_: unknown, node: Node) => {
+    setEditing(node.id);
+  }, []);
+
+  /**
+   * Create by double-clicking empty canvas.
+   *
+   * v12 has no pane double-click callback, so this listens on the wrapper and filters to
+   * events whose target is the pane — otherwise double-clicking a node to rename it would
+   * also drop a new node behind it.
+   */
+  /*
+   * Native, capture-phase, on the wrapper.
+   *
+   * React's `onDoubleClick` never fired: d3-zoom's handler on the pane stops propagation
+   * during bubble, and React's listener sits at the root container above it. Capture runs
+   * on the way down, before the pane sees the event at all.
+   */
+  const wrapper = useRef<HTMLDivElement>(null);
+
+  const onDoubleClickCapture = useCallback(
+    (event: MouseEvent) => {
+      const target = event.target as Element;
+      /*
+       * Excluded by what it is *not*, deliberately.
+       *
+       * Testing for the pane positively does not work: `Background` renders an `<svg>` over
+       * it, so the target is usually an SVG element whose `className` is an
+       * `SVGAnimatedString` — `classList.contains('react-flow__pane')` is simply false, and
+       * nothing happened. Ruling out the chrome is robust to React Flow's internals.
+       */
+      if (
+        target.closest(
+          '.react-flow__node, .react-flow__edge, .react-flow__controls, .react-flow__minimap, input, button',
+        )
+      ) {
+        return;
       }
+      setEditing(null);
+      const rect = wrapper.current?.getBoundingClientRect();
+      setDraft({
+        screen: { x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) },
+        flow: screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+      });
+    },
+    [screenToFlowPosition],
+  );
+
+  useEffect(() => {
+    const el = wrapper.current;
+    if (!el) return;
+    el.addEventListener('dblclick', onDoubleClickCapture, true);
+    return () => el.removeEventListener('dblclick', onDoubleClickCapture, true);
+  }, [onDoubleClickCapture]);
+
+  /**
+   * Commit the draft as a single `add_node_at`.
+   *
+   * The draft is client-side until it has a name. Creating an empty node and renaming it
+   * would put `+ node ""` followed by `~ node relabelled` into the change feed for every
+   * creation — noise in the one channel that exists to carry meaning — and an abandoned
+   * draft would leave junk on the server needing a third op to clean up.
+   */
+  const commitDraft = useCallback(
+    (label: string) => {
+      if (draft) emit({ op: 'add_node_at', label, position: draft.flow });
+      setDraft(null);
+    },
+    [draft, emit],
+  );
+
+  const commitRename = useCallback(
+    (id: string, label: string) => {
+      // LabelInput only calls this for a genuinely changed, non-empty label, so there is no
+      // no-op op to guard against here.
+      emit({ op: 'update_node', id, label });
+      setEditing(null);
     },
     [emit],
   );
 
-  const onDragOver = useCallback((event: React.DragEvent) => {
-    if (!event.dataTransfer.types.includes(DRAG_TYPE)) return;
-    // Without preventDefault the browser refuses the drop and no drop event fires.
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'copy';
-  }, []);
-
-  const onDrop = useCallback(
-    (event: React.DragEvent) => {
-      if (!event.dataTransfer.types.includes(DRAG_TYPE)) return;
-      event.preventDefault();
-      event.stopPropagation();
-
-      const label = window.prompt('New node label');
-      // Cancelled prompt means no node — better than littering the canvas with
-      // unnamed boxes someone has to go back and rename.
-      if (!label?.trim()) return;
-
-      // Screen pixels are meaningless to the graph: convert through the current pan
-      // and zoom so the node lands where it was dropped, not where the viewport is.
-      const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
-      emit({ op: 'add_node_at', label: label.trim(), position });
-    },
-    [screenToFlowPosition, emit],
+  /*
+   * Edit state is layered on at render rather than baked into the graph sync above, which
+   * only re-runs when the server pushes. Folding it in there would mean an edit either did
+   * not appear until the next push, or forced a full node rebuild on every keystroke.
+   */
+  const displayNodes = useMemo(
+    () =>
+      nodes.map((node) =>
+      node.id === editing
+        ? {
+            ...node,
+            // React Flow's drag would fight the text caret.
+            draggable: false,
+            data: {
+              ...node.data,
+              editing: true,
+              onRename: (label: string) => commitRename(node.id, label),
+              onCancelRename: () => setEditing(null),
+            },
+          }
+        : node,
+      ),
+    [nodes, editing, commitRename],
   );
 
   return (
+    <div className="canvas-wrapper" ref={wrapper}>
     <ReactFlow
-      nodes={nodes}
+      nodes={displayNodes}
       edges={edges}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
@@ -327,8 +407,8 @@ function GraphCanvasInner({
       onNodesDelete={onNodesDelete}
       onEdgesDelete={onEdgesDelete}
       onNodeDoubleClick={onNodeDoubleClick}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
+      // Double-click creates a node, so it must not also zoom the canvas.
+      zoomOnDoubleClick={false}
       snapToGrid
       snapGrid={[15, 15]}
       fitView
@@ -337,5 +417,20 @@ function GraphCanvasInner({
       {variant === 'main' && <MiniMap pannable />}
       {variant === 'main' && <Controls />}
     </ReactFlow>
+      {draft && (
+        <div
+          className="cp-draft"
+          style={{ left: draft.screen.x, top: draft.screen.y }}
+        >
+          <LabelInput
+            ariaLabel="New node label"
+            placeholder="Name it…"
+            className="cp-node-input"
+            onCommit={commitDraft}
+            onCancel={() => setDraft(null)}
+          />
+        </div>
+      )}
+    </div>
   );
 }
