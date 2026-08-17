@@ -355,6 +355,23 @@ body,
 }
 
 /*
+ * A node the human has resized by hand.
+ *
+ * The clamp above bounds *auto* sizing so a long label cannot run away. Once a size is
+ * pinned those bounds are wrong, and releasing them takes more than an inline width:
+ * `max-width` still applied, so a node pinned to 900px rendered at 320 and every attempt to
+ * drag it wider looked like it snapped back. React Flow puts the pinned width and height in
+ * the element's inline style; this only gets out of the way.
+ */
+.react-flow__node-default.cp-sized {
+  min-width: 0;
+  max-width: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/*
  * Node colour values. The graph stores names, so a reader — human or agent — sees "amber"
  * rather than a hex value that means nothing to them.
  *

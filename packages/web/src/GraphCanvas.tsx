@@ -121,7 +121,15 @@ function GraphCanvasInner({
             label,
             onLens: onLens ? () => onLens({ id: node.id, label, subcanvas }) : undefined,
           },
-          className: color ? `cp-color-${color}` : undefined,
+          // `cp-sized` releases the auto-sizing clamp. Inline width alone is not enough:
+          // `max-width: 320px` still applies and silently pinned a 900px node back to 320,
+          // so dragging a node wider appeared to snap back.
+          className: [color ? `cp-color-${color}` : '', node.size ? 'cp-sized' : '']
+            .filter(Boolean)
+            .join(' ') || undefined,
+          // A pinned size becomes explicit dimensions; an unpinned node gets none, so the
+          // CSS `fit-content` clamp keeps sizing it from its label.
+          ...(node.size ? { style: { width: node.size.w, height: node.size.h } } : {}),
           selected: local?.selected,
         };
       });
@@ -361,6 +369,20 @@ function GraphCanvasInner({
     [emit],
   );
 
+  const commitResize = useCallback(
+    (id: string, size: { w: number; h: number }, position: { x: number; y: number }) => {
+      emit({ op: 'resize_node', id, size });
+      // Dragging a top or left handle grows the box *and* shifts its origin. The two are
+      // separate facts in this model, so persist the move only when it actually happened —
+      // resizing from the bottom-right stays a single op.
+      const node = nodes.find((n) => n.id === id);
+      if (node && (node.position.x !== position.x || node.position.y !== position.y)) {
+        emit({ op: 'move_node', id, position });
+      }
+    },
+    [emit, nodes],
+  );
+
   /*
    * Edit state is layered on at render rather than baked into the graph sync above, which
    * only re-runs when the server pushes. Folding it in there would mean an edit either did
@@ -368,22 +390,30 @@ function GraphCanvasInner({
    */
   const displayNodes = useMemo(
     () =>
-      nodes.map((node) =>
-      node.id === editing
-        ? {
-            ...node,
-            // React Flow's drag would fight the text caret.
-            draggable: false,
-            data: {
-              ...node.data,
-              editing: true,
-              onRename: (label: string) => commitRename(node.id, label),
-              onCancelRename: () => setEditing(null),
-            },
-          }
-        : node,
-      ),
-    [nodes, editing, commitRename],
+      nodes.map((node) => {
+        const withResize = {
+          ...node,
+          data: {
+            ...node.data,
+            onResize: (size: { w: number; h: number }, position: { x: number; y: number }) =>
+              commitResize(node.id, size, position),
+          },
+        };
+        return node.id === editing
+          ? {
+              ...withResize,
+              // React Flow's drag would fight the text caret.
+              draggable: false,
+              data: {
+                ...withResize.data,
+                editing: true,
+                onRename: (label: string) => commitRename(node.id, label),
+                onCancelRename: () => setEditing(null),
+              },
+            }
+          : withResize;
+      }),
+    [nodes, editing, commitRename, commitResize],
   );
 
   return (

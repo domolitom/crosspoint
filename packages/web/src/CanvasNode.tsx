@@ -1,4 +1,4 @@
-import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
+import { Handle, NodeResizer, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import { LabelInput } from './LabelInput';
 
@@ -25,13 +25,32 @@ export type CanvasNodeData = {
   /** Called with the new label. Not called when the label is unchanged. */
   onRename?: (label: string) => void;
   onCancelRename?: () => void;
+  /** Called once when a resize gesture ends, never per frame. */
+  onResize?: (size: { w: number; h: number }, position: { x: number; y: number }) => void;
+  /** Floor for the resizer, mirroring the core clamp. */
+  minWidth?: number;
+  minHeight?: number;
 };
 
-export function CanvasNode({ data }: NodeProps<Node<CanvasNodeData>>) {
+export function CanvasNode({ data, selected }: NodeProps<Node<CanvasNodeData>>) {
   const linked = Boolean(data.subcanvas);
 
   return (
     <>
+      {/* Handles only while selected, so an unselected canvas stays quiet. Resizing is
+          persisted on end rather than per frame — the same rule `onNodeDragStop` follows,
+          or one gesture would burn a rev per animation frame. */}
+      <NodeResizer
+        isVisible={Boolean(selected) && !data.editing}
+        minWidth={data.minWidth ?? 120}
+        minHeight={data.minHeight ?? 60}
+        onResizeEnd={(_, params) =>
+          data.onResize?.(
+            { w: params.width, h: params.height },
+            { x: params.x, y: params.y },
+          )
+        }
+      />
       <Handle type="target" position={Position.Top} />
       {data.editing ? (
         <LabelInput
