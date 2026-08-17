@@ -156,3 +156,32 @@ test('withoutLayout rescues a feed that is mostly moves', () => {
   assert.equal(kept.length, 2, '90% of that feed was noise');
   assert.ok(kept.every((e) => e.kind === 'structural'));
 });
+
+test('an edge colour change reads as a colour change', () => {
+  assert.equal(
+    describeOp({ op: 'update_edge', id: 'a->b', color: 'red' }),
+    '~ edge a->b coloured red',
+  );
+  assert.equal(
+    describeOp({ op: 'update_edge', id: 'a->b', color: 'none' }),
+    '~ edge a->b colour cleared',
+  );
+  assert.equal(
+    describeOp({ op: 'update_edge', id: 'a->b', label: 'reads', color: 'green' }),
+    '~ edge a->b labelled "reads", coloured green',
+  );
+  assert.equal(
+    describeOp({ op: 'add_edge', source: 'a', target: 'b', color: 'blue' }),
+    '+ edge a → b coloured blue',
+  );
+});
+
+// A coloured edge is a statement, so it must survive the filter that drops repositioning.
+test('withoutLayout keeps an edge colour change', () => {
+  const feed = [
+    entry(1, { op: 'update_edge', id: 'a->b', color: 'red' }),
+    entry(2, { op: 'move_node', id: 'a', position: { x: 0, y: 0 } }),
+  ];
+  assert.deepEqual(withoutLayout(feed).map((e) => e.rev), [1]);
+  assert.equal(kindOf({ op: 'update_edge', id: 'a->b', color: 'red' }), 'structural');
+});

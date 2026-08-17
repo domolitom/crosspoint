@@ -97,7 +97,11 @@ export function describeOp(op: LoggedOp): string {
     case 'add_node_at':
       return `+ node ${quote(op.label)} (dropped on canvas)`;
     case 'add_edge':
-      return `+ edge ${op.source} → ${op.target}${op.label ? ` ${quote(op.label)}` : ''}`;
+      return (
+        `+ edge ${op.source} → ${op.target}` +
+        (op.label ? ` ${quote(op.label)}` : '') +
+        (op.color && op.color !== 'none' ? ` coloured ${op.color}` : '')
+      );
     case 'reconnect_edge':
       return `~ edge ${op.id} now ${op.source} → ${op.target}`;
     case 'update_node': {
@@ -112,8 +116,14 @@ export function describeOp(op: LoggedOp): string {
       if (op.data) parts.push('data');
       return `~ node ${op.id} ${parts.length ? parts.join(', ') : 'data'}`;
     }
-    case 'update_edge':
-      return `~ edge ${op.id} labelled ${quote(op.label ?? '')}`;
+    case 'update_edge': {
+      // Same shape as update_node: one op can carry both, so name each part.
+      const parts: string[] = [];
+      if (op.label !== undefined) parts.push(`labelled ${quote(op.label)}`);
+      if (op.color === 'none') parts.push('colour cleared');
+      else if (op.color) parts.push(`coloured ${op.color}`);
+      return `~ edge ${op.id} ${parts.length ? parts.join(', ') : 'unchanged'}`;
+    }
     case 'delete_node':
       return `− node ${op.id}`;
     case 'delete_edge':

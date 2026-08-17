@@ -58,6 +58,14 @@ export interface GraphEdge {
   source: string;
   target: string;
   label?: string;
+  /**
+   * Absent means uncoloured. Flat rather than in a data bag, matching `label` — an edge
+   * has no other per-edge state, and nesting one field would be noise in every diff.
+   *
+   * Shares the node palette: the same name means the same thing on either, so "red" reads
+   * as one vocabulary across the diagram rather than two.
+   */
+  color?: NodeColor;
 }
 
 export interface Graph {
@@ -102,6 +110,7 @@ export interface GeneratedEdge {
   source: string;
   target: string;
   label?: string;
+  color?: ColorInput;
 }
 
 /**
@@ -119,7 +128,13 @@ export type StructuralOp =
       color?: ColorInput;
       data?: Record<string, unknown>;
     }
-  | { op: 'add_edge'; source: string; target: string; label?: string }
+  | {
+      op: 'add_edge';
+      source: string;
+      target: string;
+      label?: string;
+      color?: ColorInput;
+    }
   | { op: 'reconnect_edge'; id: string; source: string; target: string }
   | {
       op: 'update_node';
@@ -134,7 +149,13 @@ export type StructuralOp =
       subcanvas?: string | 'none';
       data?: Record<string, unknown>;
     }
-  | { op: 'update_edge'; id: string; label?: string }
+  | {
+      op: 'update_edge';
+      id: string;
+      label?: string;
+      /** Structural for the same reason node colour is: recolouring moves nothing. */
+      color?: ColorInput;
+    }
   | { op: 'delete_node'; id: string }
   | { op: 'delete_edge'; id: string }
   /**

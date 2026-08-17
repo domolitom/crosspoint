@@ -58,6 +58,20 @@ function mergeNodeData(
 }
 
 /**
+ * Fold a label / colour change into an existing edge.
+ *
+ * Independent, exactly as for nodes: relabelling must not drop a colour, and recolouring
+ * must not clear a label. `none` removes the key so an uncoloured edge reads as untouched.
+ */
+function mergeEdge(current: GraphEdge, change: { label?: string; color?: ColorInput }): GraphEdge {
+  const edge: GraphEdge = { ...current };
+  if (change.label !== undefined) edge.label = change.label;
+  if (change.color === 'none') delete edge.color;
+  else if (change.color !== undefined) edge.color = change.color;
+  return edge;
+}
+
+/**
  * Bring a graph into the invariant the server maintains: every node placed, no dangling
  * edges, no duplicate ids. Applied on load so a hand-edited file is always usable.
  */
@@ -115,10 +129,12 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
     case 'add_edge': {
       requireNode(graph, op.source, 'source');
       requireNode(graph, op.target, 'target');
+      requireColor(op.color);
       const taken = new Set(graph.edges.map((e) => e.id));
       const id = uniqueId(`${op.source}->${op.target}`, taken);
       const edge: GraphEdge = { id, source: op.source, target: op.target };
       if (op.label) edge.label = op.label;
+      if (op.color && op.color !== 'none') edge.color = op.color;
       return { ...next, edges: [...graph.edges, edge] };
     }
 
@@ -135,7 +151,10 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       const taken = new Set(graph.edges.filter((e) => e.id !== op.id).map((e) => e.id));
       const id = uniqueId(`${op.source}->${op.target}`, taken);
       const reconnected: GraphEdge = { id, source: op.source, target: op.target };
+      // Everything the edge carried survives being pointed somewhere else. Moving an arrow
+      // is not a reason to lose the label or the colour that said what it meant.
       if (existing.label !== undefined) reconnected.label = existing.label;
+      if (existing.color !== undefined) reconnected.color = existing.color;
 
       return {
         ...next,
@@ -160,11 +179,10 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       if (!graph.edges.some((e) => e.id === op.id)) {
         throw new GraphError(`No edge with id "${op.id}"`);
       }
+      requireColor(op.color);
       return {
         ...next,
-        edges: graph.edges.map((e) =>
-          e.id === op.id ? { ...e, ...(op.label === undefined ? {} : { label: op.label }) } : e,
-        ),
+        edges: graph.edges.map((e) => (e.id === op.id ? mergeEdge(e, op) : e)),
       };
     }
 
@@ -187,6 +205,7 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
 
     case 'generate_graph': {
       for (const node of op.nodes) requireColor(node.color);
+      for (const edge of op.edges) requireColor(edge.color);
 
       // Checked before any work, and `applyOp` is pure, so a refusal cannot leave the
       // diagram half-replaced. The count is in the message because the whole reason this
@@ -261,6 +280,8 @@ export function structuralView(graph: Graph) {
       source: e.source,
       target: e.target,
       ...(e.label ? { label: e.label } : {}),
+      // Colour is meaning, so it belongs in the agent's view. Position does not.
+      ...(e.color ? { color: e.color } : {}),
     })),
   };
 }

@@ -491,3 +491,101 @@ test('the agent view shows which nodes have detail behind them', () => {
 test('linking a subcanvas is structural, so the layout filter keeps it', () => {
   assert.equal(isLayoutOp({ op: 'update_node', id: 'a', subcanvas: 'detail' }), false);
 });
+
+/**
+ * Edge colour. Flat on the edge rather than in a data bag, sharing the node palette so one
+ * name means one thing across the diagram.
+ */
+
+const EDGE = 'auth-service->database';
+
+test('a colour is stored on the edge by name', () => {
+  const g = applyOp(build(), { op: 'update_edge', id: EDGE, color: 'amber' });
+  assert.equal(g.edges[0].color, 'amber');
+});
+
+test('an edge can be created already coloured', () => {
+  let g = applyOp(emptyGraph(), { op: 'add_node', label: 'A' });
+  g = applyOp(g, { op: 'add_node', label: 'B' });
+  g = applyOp(g, { op: 'add_edge', source: 'a', target: 'b', color: 'red' });
+  assert.equal(g.edges[0].color, 'red');
+});
+
+test('an unknown edge colour is rejected rather than stored', () => {
+  for (const color of ['crimsonish', '#a3221c', '', 'RED']) {
+    assert.throws(
+      () => applyOp(build(), { op: 'update_edge', id: EDGE, color: color as never }),
+      GraphError,
+      `"${color}" should not be accepted`,
+    );
+  }
+});
+
+test('"none" removes the edge colour key instead of storing the string', () => {
+  let g = applyOp(build(), { op: 'update_edge', id: EDGE, color: 'green' });
+  g = applyOp(g, { op: 'update_edge', id: EDGE, color: 'none' });
+  assert.equal(g.edges[0].color, undefined);
+  assert.equal('color' in g.edges[0], false, 'the key itself is gone');
+});
+
+test('edge colour and label do not clobber each other', () => {
+  let g = applyOp(build(), { op: 'update_edge', id: EDGE, color: 'blue' });
+  g = applyOp(g, { op: 'update_edge', id: EDGE, label: 'reads' });
+  assert.equal(g.edges[0].color, 'blue', 'relabelling kept the colour');
+  assert.equal(g.edges[0].label, 'reads');
+
+  g = applyOp(g, { op: 'update_edge', id: EDGE, color: 'violet' });
+  assert.equal(g.edges[0].label, 'reads', 'recolouring kept the label');
+  assert.equal(g.edges[0].color, 'violet');
+});
+
+// Pointing an arrow somewhere else is not a reason to lose what it meant.
+test('reconnecting an edge keeps its colour', () => {
+  let g = applyOp(build(), { op: 'add_node', label: 'Cache' });
+  g = applyOp(g, { op: 'update_edge', id: EDGE, color: 'red' });
+  g = applyOp(g, {
+    op: 'reconnect_edge',
+    id: EDGE,
+    source: 'auth-service',
+    target: 'cache',
+  });
+  assert.equal(g.edges[0].id, 'auth-service->cache');
+  assert.equal(g.edges[0].color, 'red');
+});
+
+test('colouring an edge moves nothing', () => {
+  let g = applyOp(build(), { op: 'move_node', id: 'database', position: { x: 600, y: 300 } });
+  const before = g.nodes.map((n) => ({ ...n.position! }));
+  g = applyOp(g, { op: 'update_edge', id: EDGE, color: 'amber' });
+  assert.deepEqual(g.nodes.map((n) => ({ ...n.position! })), before);
+});
+
+test('generate_graph carries edge colours through', () => {
+  const g = applyOp(emptyGraph(), {
+    op: 'generate_graph',
+    nodes: [{ label: 'Try' }, { label: 'Fail' }],
+    edges: [{ source: 'try', target: 'fail', label: 'on error', color: 'red' }],
+  });
+  assert.equal(g.edges[0].color, 'red');
+  assert.equal(g.edges[0].label, 'on error');
+});
+
+test('generate_graph rejects an invented edge colour', () => {
+  assert.throws(
+    () =>
+      applyOp(emptyGraph(), {
+        op: 'generate_graph',
+        nodes: [{ label: 'A' }, { label: 'B' }],
+        edges: [{ source: 'a', target: 'b', color: 'puce' as never }],
+      }),
+    GraphError,
+  );
+});
+
+test('an edge colour reaches the agent view and survives serialisation', () => {
+  const g = applyOp(build(), { op: 'update_edge', id: EDGE, color: 'green' });
+  assert.equal((structuralView(g).edges[0] as { color?: string }).color, 'green');
+
+  const round = normalize(parse(serialize(g)));
+  assert.equal(round.edges[0].color, 'green', 'colour survives a save and load');
+});

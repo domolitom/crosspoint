@@ -107,6 +107,7 @@ function identifyEdges(edges: GeneratedEdge[]): GraphEdge[] {
     taken.add(id);
     const result: GraphEdge = { id, source: edge.source, target: edge.target };
     if (edge.label) result.label = edge.label;
+    if (edge.color && edge.color !== 'none') result.color = edge.color;
     return result;
   });
 }
