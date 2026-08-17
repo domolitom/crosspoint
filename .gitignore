@@ -1,0 +1,22 @@
+node_modules/
+dist/
+*.tmp
+*.log
+.DS_Store
+
+# The working diagram and its history — live documents, not repo content.
+graph.json
+*.ops.jsonl
+*.state.json
+
+# A directory of diagrams, when the server is pointed at one.
+diagrams/
+
+# In single-file mode every new diagram is written beside graph.json, so root-level JSON is
+# a diagram unless it is one of the configs below. Ignoring already-tracked files has no
+# effect, so the exceptions are what keeps a config visible if it is ever removed and re-added.
+/*.json
+!/package.json
+!/package-lock.json
+!/tsconfig.json
+!/.mcp.json
