@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "bin": {
+    "crosspoint": "./bin/crosspoint.js"
+  },
   "workspaces": [
     "packages/*"
   ],
