@@ -29,6 +29,14 @@ export type LoggedOp = GraphOp | ExternalEdit;
  */
 export type ChangeKind = 'structural' | 'layout' | 'external';
 
+/**
+ * Who made a change.
+ *
+ * Inferred from the transport at the server boundary, never taken from the caller — see
+ * the note on `withActor`.
+ */
+export type Actor = 'human' | 'agent';
+
 export interface LogEntry {
   /** The rev this op produced. Entries are strictly ascending. */
   rev: number;
@@ -36,6 +44,11 @@ export interface LogEntry {
   kind: ChangeKind;
   /** Which diagram changed. One today; named diagrams make this load-bearing. */
   diagram: string;
+  /**
+   * Absent on entries written before actors were recorded. Those are unattributable
+   * rather than anonymous, and `withActor` deliberately keeps them — see there.
+   */
+  actor?: Actor;
   op: LoggedOp;
 }
 
@@ -53,6 +66,26 @@ export interface LogEntry {
  */
 export const withoutLayout = (entries: LogEntry[]): LogEntry[] =>
   entries.filter((entry) => entry.kind !== 'layout');
+
+/** `all` is an explicit request for everything, including the agent's own edits. */
+export type ActorFilter = Actor | 'all';
+
+/**
+ * Keep only the changes a given actor made.
+ *
+ * The feed exists to answer "what did the human change", and an agent's own edits are not
+ * instructions. Reading them back as if they were is worse than returning nothing: after a
+ * context wipe an agent has no memory of what it drew, so its own `generate_graph` looks
+ * exactly like a request. That happened — a real feed of 13 entries was 8 agent ops and 5
+ * human ones, separable only because the agent still remembered the session.
+ *
+ * An entry with **no** actor is kept by every filter. Those predate actor recording, so
+ * they are unattributable rather than anonymous, and silently dropping them would make an
+ * existing log look empty after an upgrade. Showing a change that might not be yours is a
+ * smaller error than hiding one that is.
+ */
+export const withActor = (entries: LogEntry[], actor: ActorFilter): LogEntry[] =>
+  actor === 'all' ? entries : entries.filter((e) => e.actor === undefined || e.actor === actor);
 
 /**
  * Ops that only change where things sit.
@@ -163,7 +196,15 @@ export function describeOp(op: LoggedOp): string {
  */
 export function summarise(entries: LogEntry[]): string {
   if (entries.length === 0) return 'No changes.';
+  // Only name the actor when the set actually mixes them. Detected rather than passed in:
+  // a caller asking for everything may still get a set that is all one actor, and a column
+  // repeating "human" on every line is noise in a feed whose whole point is signal.
+  const actors = new Set(entries.map((e) => e.actor ?? 'unknown'));
+  const mixed = actors.size > 1;
   return entries
-    .map((e) => `${String(e.rev).padStart(4)}  ${e.diagram}  ${describeOp(e.op)}`)
+    .map((e) => {
+      const who = mixed ? `${(e.actor ?? '?').padEnd(6)}` : '';
+      return `${String(e.rev).padStart(4)}  ${who}${e.diagram}  ${describeOp(e.op)}`;
+    })
     .join('\n');
 }
