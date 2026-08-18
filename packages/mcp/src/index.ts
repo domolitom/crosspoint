@@ -120,7 +120,14 @@ server.registerTool(
       'Repositioning is left out by default — where a box sits is rarely the message, ' +
       'and on a real session it was 18 of 20 entries, burying the two that mattered. ' +
       'What you get is tagged `structural` (nodes and edges) or `external` (the file was ' +
-      'edited outside the app, so re-read the graph rather than trusting your picture).',
+      'edited outside the app, so re-read the graph rather than trusting your picture).\n\n' +
+      'IMPORTANT: you get the HUMAN\'s changes only. Your own edits are hidden, because ' +
+      'they are not instructions — and after your context is compacted you have no memory ' +
+      'of making them, so a diagram you generated yourself would otherwise read back as a ' +
+      'request. That has happened. Pass actor: "all" to see everything (each entry then ' +
+      'names who did it), or actor: "agent" to review only your own edits. Entries recorded ' +
+      'before attribution existed have no actor and are always shown, so an older history ' +
+      'is never silently empty.',
     inputSchema: {
       since_rev: z
         .number()
@@ -137,12 +144,21 @@ server.registerTool(
           'Include repositioning. Rarely useful — ask only when the question is ' +
             'genuinely about where things sit, such as which nodes were grouped together.',
         ),
+      actor: z
+        .enum(['human', 'agent', 'all'])
+        .optional()
+        .describe(
+          'Whose changes to return. Defaults to human — what you are almost always ' +
+            'asking. Use all to see your own edits alongside theirs, or agent to review ' +
+            'only what you did.',
+        ),
     },
   },
-  async ({ since_rev, include_layout }) => {
+  async ({ since_rev, include_layout, actor }) => {
     const params = new URLSearchParams();
     if (since_rev !== undefined) params.set('since', String(since_rev));
     if (include_layout) params.set('include_layout', 'true');
+    if (actor) params.set('actor', actor);
     const query = params.toString();
     return ok(await call(`/api/changes${query ? `?${query}` : ''}`));
   },
