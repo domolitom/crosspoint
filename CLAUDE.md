@@ -290,6 +290,22 @@ just coloured is selected by definition; overriding its stroke would make applyi
 appear to do nothing until you clicked away. Selection thickens instead, and only tints an
 edge that has no colour of its own.
 
+**`path.normalize` collapses a leading `..` on an absolute path.** Normalising before the
+containment check turns `/../../etc/passwd` into `/etc/passwd`, joins it back inside the root,
+and the check can never fail — the guard becomes dead code that reads as working. Reject `..`
+segments *first*, then check containment as a second line. `safeJoin` in
+`packages/server/src/static.ts` does it in that order, and deleting the rejection fails two
+tests.
+
+**A traversal test over HTTP cannot reach that guard.** `new URL()` normalises `..` out of the
+pathname before the server sees it, so every wire-level attempt arrives already flattened and
+returns the `index.html` fallback. `safeJoin` is therefore unit-tested directly; an
+integration-only test would pass with the guard removed.
+
+**Static serving must run after every `/api` route**, or a missing endpoint answers with HTML
+instead of a JSON 404. And a missing *asset* must 404 rather than fall back to `index.html` —
+serving HTML for an absent script turns a 404 into a syntax error, which is far harder to read.
+
 **The canvas has no error surface.** A dropped interaction just does nothing. Three separate
 defects were invisible for exactly this reason. Verify canvas changes by driving a real
 browser and asserting against the HTTP API — not by reasoning about the code.

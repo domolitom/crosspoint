@@ -59,12 +59,50 @@ npm run build
 npm run dev
 ```
 
-Then open http://localhost:5173. The canvas reads and writes `graph.json` in the repo root
-via the server on :4000. That file is deliberately untracked — it's a working document, not
-repo content.
+Then open http://localhost:5173. That's the development setup — vite for hot reload, with the
+server on :4000.
 
 To let an agent edit the same graph, point it at the MCP server. `.mcp.json` already
 configures it for Claude Code; it needs `npm run build` to have run and the server to be up.
+
+## Use it on another project
+
+Diagrams belong to the project they describe, so Crosspoint runs against whatever directory
+you are standing in. Build it once:
+
+```bash
+cd /path/to/crosspoint
+npm install && npm run build
+```
+
+Register the MCP server so it's available everywhere, using an absolute path — a relative one
+only resolves when your working directory happens to be this repo:
+
+```bash
+claude mcp add crosspoint -s user \
+  -e CROSSPOINT_SERVER=http://localhost:4000 \
+  -- node /path/to/crosspoint/packages/mcp/dist/index.js
+```
+
+Then, in any project:
+
+```bash
+node /path/to/crosspoint/bin/crosspoint.js
+```
+
+That serves the canvas and the API together on http://localhost:4000 — one process, no vite
+needed. Diagrams go in `.crosspoint/` in that project, and the folder is created with a
+`.gitignore` containing `*`, so it keeps itself out of your repo without anything being added
+to your own `.gitignore`. Pass a directory to put them somewhere else:
+
+```bash
+node /path/to/crosspoint/bin/crosspoint.js docs/diagrams
+```
+
+Two things worth knowing. The MCP server is a thin client of the HTTP API, so **it needs the
+Crosspoint server running** — start that first or every tool call fails. And the MCP process is
+long-lived: after rebuilding the `mcp` package, **reconnect the client** (`/mcp` in Claude Code)
+or you will keep talking to the old tool schema.
 
 ## The agent surface
 
