@@ -94,7 +94,7 @@ test('reading a diagram by name does not switch to it', async () => {
 });
 
 test('the feed tags each entry with the diagram it happened in', async () => {
-  const { body } = await api('/api/changes?since=0');
+  const { body } = await api('/api/changes?since=0&actor=all');
   const byDiagram = body.entries.reduce((acc: Record<string, string[]>, e: any) => {
     (acc[e.diagram] ??= []).push(e.op.label ?? e.op.op);
     return acc;

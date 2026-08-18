@@ -2,7 +2,7 @@ import { watch, type FSWatcher } from 'node:fs';
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 
-import { applyOp, type Graph, type GraphOp, type LogEntry } from '@crosspoint/core';
+import { applyOp, type Actor, type Graph, type GraphOp, type LogEntry } from '@crosspoint/core';
 
 import { DiagramFile, StaleRevError } from './diagram.js';
 import { OpLog } from './oplog.js';
@@ -235,7 +235,7 @@ export class Workspace {
    */
   apply(
     op: GraphOp,
-    options: { baseRev?: number; origin?: string; diagram?: string } = {},
+    options: { actor: Actor; baseRev?: number; origin?: string; diagram?: string },
   ): Graph {
     const file = this.file(options.diagram ?? this.activeName);
     const graph = file.current();
@@ -247,7 +247,7 @@ export class Workspace {
     // in favour of the workspace counter.
     const next = { ...applyOp(graph, op), rev: this.nextRev() };
     file.replace(next);
-    this.log.record(next.rev, op, file.name);
+    this.log.record(next.rev, op, file.name, options.actor);
     this.emit({ type: 'graph', diagram: file.name, graph: next, origin: options.origin });
     return next;
   }
@@ -361,7 +361,8 @@ export class Workspace {
     // something happened outside the op stream and let the reader re-read.
     const next = { ...incoming, rev: this.nextRev() };
     diagram.adopt(next);
-    this.log.record(next.rev, { op: 'external_edit' }, name);
+    // A hand edit to the file is a person acting outside the app, not the agent.
+    this.log.record(next.rev, { op: 'external_edit' }, name, 'human');
     this.emit({ type: 'graph', diagram: name, graph: next });
   }
 }
