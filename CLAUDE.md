@@ -249,6 +249,23 @@ It also has to distinguish nodes from edges: colouring them takes `update_node` 
 and `update_edge` against the other, so a flat id list leaves the caller unable to tell which
 it is holding.
 
+**The actor on a log entry is inferred from the transport, never supplied by the caller.**
+A websocket op is the canvas, so `human`; an op to `/api/op` is the MCP server or a script, so
+`agent`; an external file edit is a person working outside the app, so `human` too. Do not
+"simplify" this into a client-supplied `actor` field — a caller can lie about it or forget it,
+and a wrong attribution is worse than none, because `get_changes` defaults to human-only and
+would then hide a real instruction. `Workspace.apply` takes `actor` as a **required** option so
+that adding a third transport is a compile error rather than a silent misattribution.
+
+**An entry with no actor is kept by every filter.** Logs written before attribution existed are
+unattributable, not anonymous. Dropping them would make a real history look empty the first
+time someone upgraded; showing a change that might not be the human's is the smaller error.
+
+**Filtered feed entries are still consumed.** This holds for the actor filter exactly as it
+does for the layout filter: they are dropped from the *response*, not left unseen, or a
+no-argument read would re-scan the same agent ops forever and never converge. There is a test
+per filter for this.
+
 **`window.prompt` is banned in this canvas.** It blocks the page, cannot be styled, and the
 user rejected it outright after being interrupted by one on every node creation. There were
 four; all are now inline inputs (`LabelInput`). `grep -rn "window.prompt" packages/web/src`
@@ -289,6 +306,29 @@ reach it — a coloured line ending in a grey arrow reads as a bug. The values l
 just coloured is selected by definition; overriding its stroke would make applying a colour
 appear to do nothing until you clicked away. Selection thickens instead, and only tints an
 edge that has no colour of its own.
+
+**`path.normalize` collapses a leading `..` on an absolute path.** Normalising before the
+containment check turns `/../../etc/passwd` into `/etc/passwd`, joins it back inside the root,
+and the check can never fail — the guard becomes dead code that reads as working. Reject `..`
+segments *first*, then check containment as a second line. `safeJoin` in
+`packages/server/src/static.ts` does it in that order, and deleting the rejection fails two
+tests.
+
+**A traversal test over HTTP cannot reach that guard.** `new URL()` normalises `..` out of the
+pathname before the server sees it, so every wire-level attempt arrives already flattened and
+returns the `index.html` fallback. `safeJoin` is therefore unit-tested directly; an
+integration-only test would pass with the guard removed.
+
+**Static serving must run after every `/api` route**, or a missing endpoint answers with HTML
+instead of a JSON 404. And a missing *asset* must 404 rather than fall back to `index.html` —
+serving HTML for an absent script turns a 404 into a syntax error, which is far harder to read.
+
+**`fitView` animates, so a click before it settles is thrown away.** Measured across a diagram
+switch: the viewport transform moves for ~250ms while the first node's x travels 102 -> 562. A
+click computed from a bounding box taken in that window lands ~460px off and is simply
+discarded — which surfaces as "selection is broken" or a bare timeout, never as a race. Three
+separate flaky tests had this one cause. `openCanvas` now calls `settleViewport`, and every
+diagram switch must too.
 
 **The canvas has no error surface.** A dropped interaction just does nothing. Three separate
 defects were invisible for exactly this reason. Verify canvas changes by driving a real

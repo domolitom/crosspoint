@@ -1,8 +1,16 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 
-import { structuralView, summarise, withoutLayout, type GraphOp } from '@crosspoint/core';
+import {
+  structuralView,
+  summarise,
+  withActor,
+  withoutLayout,
+  type ActorFilter,
+  type GraphOp,
+} from '@crosspoint/core';
 import { WebSocketServer, type WebSocket } from 'ws';
 
+import { serveStatic, webDir } from './static.js';
 import { StaleRevError, UnknownDiagramError, Workspace } from './workspace.js';
 
 const PORT = Number(process.env.CROSSPOINT_PORT ?? 4000);
@@ -64,8 +72,17 @@ const server = createServer(async (req, res) => {
       // Repositioning is dropped unless asked for. Note the watermark has already moved
       // past those entries: they are filtered out of the *response*, not left unseen, or
       // every subsequent call would re-scan the same pile of moves forever.
-      const entries =
+      const withLayout =
         url.searchParams.get('include_layout') === 'true' ? all : withoutLayout(all);
+      // Human-authored by default: the feed answers "what did the human change", and the
+      // agent's own edits are not instructions. Same watermark caveat as above — filtered
+      // entries are dropped from the response, not left unseen.
+      const requested = url.searchParams.get('actor');
+      const actor: ActorFilter =
+        requested === 'agent' || requested === 'all' || requested === 'human'
+          ? requested
+          : 'human';
+      const entries = withActor(withLayout, actor);
       return json(res, 200, {
         // The workspace rev, not the active diagram's. The feed spans every diagram and
         // `since` is measured against the same counter, so reporting one diagram's
@@ -106,11 +123,21 @@ const server = createServer(async (req, res) => {
       // lets a lens panel edit a subcanvas, and an agent detail a step, while the main
       // canvas stays where it is.
       const graph = store.apply(op, {
+        // Inferred from the transport, never taken from the body: a caller could lie about
+        // it or simply forget, and a wrong actor is worse than none. The canvas uses the
+        // websocket; this endpoint is the MCP server or a script.
+        actor: 'agent',
         baseRev: body.baseRev,
         origin: body.clientId,
         diagram: body.diagram ? String(body.diagram) : undefined,
       });
       return json(res, 200, { rev: graph.rev, graph: structuralView(graph) });
+    }
+
+    // The built canvas, last so every `/api` route wins and a missing endpoint still 404s
+    // as JSON rather than being answered with HTML.
+    if (req.method === 'GET' && !url.pathname.startsWith('/api/')) {
+      if (await serveStatic(url.pathname, res)) return;
     }
 
     return json(res, 404, { error: 'Not found' });
@@ -150,6 +177,8 @@ wss.on('connection', (socket: WebSocket) => {
       const msg = JSON.parse(String(raw));
       if (msg.type !== 'op') return;
       store.apply(msg.op as GraphOp, {
+        // The websocket is the canvas, so a person did this.
+        actor: 'human',
         origin: clientId,
         diagram: msg.diagram ? String(msg.diagram) : undefined,
       });
@@ -178,8 +207,9 @@ async function readJson(req: IncomingMessage): Promise<Record<string, any>> {
 }
 
 server.listen(PORT, () => {
-  console.log(`crosspoint server  http://localhost:${PORT}`);
+  console.log(`crosspoint         http://localhost:${PORT}`);
   console.log(`diagrams           ${store.dir}  (active: ${store.active})`);
+  console.log(`canvas             ${webDir()}`);
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

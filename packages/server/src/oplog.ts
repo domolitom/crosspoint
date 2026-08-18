@@ -1,6 +1,6 @@
 import { appendFile, readFile, writeFile } from 'node:fs/promises';
 
-import { kindOf, type LogEntry, type LoggedOp } from '@crosspoint/core';
+import { kindOf, type Actor, type LogEntry, type LoggedOp } from '@crosspoint/core';
 
 /**
  * Append-only history of everything that happened across the whole workspace.
@@ -90,12 +90,13 @@ export class OpLog {
   }
 
   /** Record an op that has already been applied and validated. */
-  record(rev: number, op: LoggedOp, diagram: string): LogEntry {
+  record(rev: number, op: LoggedOp, diagram: string, actor: Actor): LogEntry {
     const entry: LogEntry = {
       rev,
       ts: new Date().toISOString(),
       kind: kindOf(op),
       diagram,
+      actor,
       op,
     };
     this.entries.push(entry);

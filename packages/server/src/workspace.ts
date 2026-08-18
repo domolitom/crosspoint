@@ -2,7 +2,7 @@ import { watch, type FSWatcher } from 'node:fs';
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 
-import { applyOp, type Graph, type GraphOp, type LogEntry } from '@crosspoint/core';
+import { applyOp, type Actor, type Graph, type GraphOp, type LogEntry } from '@crosspoint/core';
 
 import { DiagramFile, StaleRevError } from './diagram.js';
 import { OpLog } from './oplog.js';
@@ -88,6 +88,8 @@ export class Workspace {
     let mode: 'dir' | 'file' = 'dir';
     let dir = full;
     let seed: string | undefined;
+    /** True when we are about to create the directory rather than adopt an existing one. */
+    let fresh = false;
 
     try {
       const info = await stat(full);
@@ -106,10 +108,29 @@ export class Workspace {
         mode = 'file';
         dir = dirname(full);
         seed = basename(full).replace(/\.json$/, '');
+      } else {
+        fresh = true;
       }
     }
 
     await mkdir(dir, { recursive: true });
+
+    /*
+     * A workspace we created ignores itself.
+     *
+     * Diagrams live inside the project being worked on, and that project's `.gitignore` is
+     * not ours to edit. A `*` here keeps the folder out of its git without touching anything
+     * we do not own. Only for a directory we just made: pointed at somewhere that already
+     * exists, silently ignoring its contents would be presumptuous.
+     */
+    if (fresh && mode === 'dir') {
+      const ignore = join(dir, '.gitignore');
+      try {
+        await stat(ignore);
+      } catch {
+        await writeFile(ignore, '*\n', 'utf8');
+      }
+    }
 
     // In file mode the sidecars keep the old `<base>.ops.jsonl` naming so an existing
     // history carries over rather than being orphaned by this change.
@@ -214,7 +235,7 @@ export class Workspace {
    */
   apply(
     op: GraphOp,
-    options: { baseRev?: number; origin?: string; diagram?: string } = {},
+    options: { actor: Actor; baseRev?: number; origin?: string; diagram?: string },
   ): Graph {
     const file = this.file(options.diagram ?? this.activeName);
     const graph = file.current();
@@ -226,7 +247,7 @@ export class Workspace {
     // in favour of the workspace counter.
     const next = { ...applyOp(graph, op), rev: this.nextRev() };
     file.replace(next);
-    this.log.record(next.rev, op, file.name);
+    this.log.record(next.rev, op, file.name, options.actor);
     this.emit({ type: 'graph', diagram: file.name, graph: next, origin: options.origin });
     return next;
   }
@@ -340,7 +361,8 @@ export class Workspace {
     // something happened outside the op stream and let the reader re-read.
     const next = { ...incoming, rev: this.nextRev() };
     diagram.adopt(next);
-    this.log.record(next.rev, { op: 'external_edit' }, name);
+    // A hand edit to the file is a person acting outside the app, not the agent.
+    this.log.record(next.rev, { op: 'external_edit' }, name, 'human');
     this.emit({ type: 'graph', diagram: name, graph: next });
   }
 }

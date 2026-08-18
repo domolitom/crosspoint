@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { describeOp, kindOf, summarise, withoutLayout, type LogEntry } from './changes.js';
+import {
+  describeOp,
+  kindOf,
+  summarise,
+  withActor,
+  withoutLayout,
+  type Actor,
+  type LogEntry,
+} from './changes.js';
 
 const entry = (rev: number, op: LogEntry['op']): LogEntry => ({
   rev,
@@ -184,4 +192,67 @@ test('withoutLayout keeps an edge colour change', () => {
   ];
   assert.deepEqual(withoutLayout(feed).map((e) => e.rev), [1]);
   assert.equal(kindOf({ op: 'update_edge', id: 'a->b', color: 'red' }), 'structural');
+});
+
+/** Same shape as `entry`, plus an attributed actor. */
+const by = (rev: number, actor: Actor, op: LogEntry['op']): LogEntry => ({
+  ...entry(rev, op),
+  actor,
+});
+
+test('withActor keeps only that actor', () => {
+  const feed = [
+    by(1, 'agent', { op: 'generate_graph', nodes: [], edges: [] }),
+    by(2, 'human', { op: 'add_node', label: 'retry' }),
+    by(3, 'agent', { op: 'add_edge', source: 'a', target: 'b' }),
+    by(4, 'human', { op: 'delete_edge', id: 'a->b' }),
+  ];
+
+  assert.deepEqual(withActor(feed, 'human').map((e) => e.rev), [2, 4]);
+  assert.deepEqual(withActor(feed, 'agent').map((e) => e.rev), [1, 3]);
+  assert.deepEqual(withActor(feed, 'all').map((e) => e.rev), [1, 2, 3, 4]);
+});
+
+// Entries written before actors existed are unattributable, not anonymous. Dropping them
+// would make an upgraded log look empty, which is a worse lie than showing a change that
+// might not be the human's.
+test('an entry with no actor survives every filter', () => {
+  const feed = [
+    entry(1, { op: 'add_node', label: 'legacy' }),
+    by(2, 'agent', { op: 'add_node', label: 'mine' }),
+  ];
+
+  assert.deepEqual(withActor(feed, 'human').map((e) => e.rev), [1]);
+  assert.deepEqual(withActor(feed, 'agent').map((e) => e.rev), [1, 2]);
+  assert.deepEqual(withActor(feed, 'all').map((e) => e.rev), [1, 2]);
+});
+
+test('the actor and layout filters compose', () => {
+  const feed = [
+    by(1, 'human', { op: 'add_node', label: 'retry' }),
+    by(2, 'human', { op: 'move_node', id: 'retry', position: { x: 0, y: 0 } }),
+    by(3, 'agent', { op: 'add_edge', source: 'a', target: 'b' }),
+    by(4, 'agent', { op: 'align', ids: ['a', 'b'], edge: 'left' }),
+  ];
+
+  assert.deepEqual(
+    withoutLayout(withActor(feed, 'human')).map((e) => e.rev),
+    [1],
+    'the human structural change only',
+  );
+});
+
+test('the summary names the actor only when the set mixes them', () => {
+  const mixed = summarise([
+    by(1, 'human', { op: 'add_node', label: 'retry' }),
+    by(2, 'agent', { op: 'add_edge', source: 'a', target: 'b' }),
+  ]);
+  assert.match(mixed, /human/);
+  assert.match(mixed, /agent/);
+
+  const single = summarise([
+    by(1, 'human', { op: 'add_node', label: 'retry' }),
+    by(2, 'human', { op: 'add_edge', source: 'a', target: 'b' }),
+  ]);
+  assert.ok(!single.includes('human'), `a single-actor set needs no column, got:\n${single}`);
 });

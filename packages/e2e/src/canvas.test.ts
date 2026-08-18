@@ -6,6 +6,7 @@ import {
   dragMouse,
   nodeCentre,
   openCanvas,
+  settleViewport,
   startStack,
   until,
   type Stack,
@@ -70,6 +71,8 @@ async function freshDiagram(name: string) {
   );
   await switcher.selectOption(name);
   await until(`${name} to be active`, async () => (await switcher.inputValue()) === name);
+  // The switch re-fits the view; clicking before it settles throws the click away.
+  await settleViewport(stack.page);
   return async (label: string, x: number, y: number) => {
     const { status } = await stack.op({ op: 'add_node_at', label, position: { x, y } }, name);
     assert.equal(status, 200, `seeding ${label} failed`);
@@ -436,6 +439,7 @@ test('the switcher lists diagrams and switching changes what is on screen', asyn
   );
 
   await switcher.selectOption('second');
+  await settleViewport(stack.page);
 
   await until('the canvas to empty out', async () =>
     (await stack.page.locator('.react-flow__node').count()) === 0,
@@ -448,6 +452,7 @@ test('the switcher lists diagrams and switching changes what is on screen', asyn
   assert.equal((await stack.graph()).nodes.length, 0, 'and the server agrees on what is active');
 
   await switcher.selectOption('graph');
+  await settleViewport(stack.page);
   await until('the first diagram to come back', async () =>
     (await stack.page.locator(`.react-flow__node[data-id="${here}"]`).count()) > 0,
   );
@@ -841,9 +846,19 @@ test('a swatch colours a selected edge, line and arrowhead together', async () =
   const before = await edgePaint(edge);
   assert.ok(before, 'the edge path did not render');
 
-  await stack.page.locator(`.react-flow__edge[data-id="${edge}"] .react-flow__edge-path`).click({ force: true });
+  /*
+   * Retry the click rather than clicking once and waiting for the palette.
+   *
+   * A click that lands before React Flow has finished fitting the view is discarded, and
+   * no amount of waiting afterwards recovers it — this failed one standalone run in three
+   * while passing the others. Same fix as the mixed-selection test above.
+   */
+  const path = `.react-flow__edge[data-id="${edge}"] .react-flow__edge-path`;
   const swatch = stack.page.locator('.swatch[aria-label="red"]');
-  await until('the palette to accept an edge selection', async () => !(await swatch.isDisabled()));
+  await until('the palette to accept an edge selection', async () => {
+    await stack.page.locator(path).click({ force: true });
+    return !(await swatch.isDisabled());
+  });
   await swatch.click();
 
   const stored = await until('the colour to reach the server', async () => {
@@ -933,6 +948,7 @@ test('one swatch click colours a mixed node and edge selection', async () => {
     (await switcher.locator('option[value="mixed"]').count()) > 0,
   );
   await switcher.selectOption('mixed');
+  await settleViewport(stack.page);
   await until('the mixed diagram to render', async () =>
     (await stack.page.locator('.react-flow__node').count()) === 2,
   );

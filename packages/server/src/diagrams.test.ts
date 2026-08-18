@@ -152,7 +152,7 @@ test('switching to a diagram that does not exist is a clean 404', async () => {
 
 // The reason rev is workspace-wide rather than per diagram.
 test('ops across two diagrams interleave in one feed, each tagged', async () => {
-  await api('/api/changes'); // drain
+  await api('/api/changes?actor=all'); // drain
 
   await op({ op: 'add_node', label: 'First here' });
   await send('/api/diagrams/active', 'PUT', { name: 'auth-flow' });
@@ -160,7 +160,7 @@ test('ops across two diagrams interleave in one feed, each tagged', async () => 
   await send('/api/diagrams/active', 'PUT', { name: 'graph' });
   await op({ op: 'add_node', label: 'Back again' });
 
-  const { body } = await api('/api/changes');
+  const { body } = await api('/api/changes?actor=all');
   assert.deepEqual(
     body.entries.map((e: any) => [e.diagram, e.op.label]),
     [
@@ -177,7 +177,7 @@ test('ops across two diagrams interleave in one feed, each tagged', async () => 
 });
 
 test('a rev is never reused between diagrams', async () => {
-  const { body } = await api('/api/changes?since=0');
+  const { body } = await api('/api/changes?since=0&actor=all');
   const revs = body.entries.map((e: any) => e.rev);
   assert.equal(new Set(revs).size, revs.length);
 });
@@ -221,7 +221,7 @@ test('a hand-created file in the directory is adopted as a diagram', async () =>
 });
 
 test('the workspace rev survives a restart without going backwards', async () => {
-  const before = (await api('/api/changes?since=0')).body;
+  const before = (await api('/api/changes?since=0&actor=all')).body;
   const highest = Math.max(...before.entries.map((e: any) => e.rev));
 
   await stopServer();
@@ -230,14 +230,14 @@ test('the workspace rev survives a restart without going backwards', async () =>
   // The workspace counter, not the active diagram's rev — a diagram's stored rev is the
   // workspace rev at which *it* was last written, so it legitimately trails when the most
   // recent ops went somewhere else.
-  const { body: after } = await api('/api/changes?since=0');
+  const { body: after } = await api('/api/changes?since=0&actor=all');
   assert.ok(
     after.rev >= highest,
     `workspace rev went backwards across a restart: ${after.rev} < ${highest}`,
   );
 
   await op({ op: 'add_node', label: 'After restart' });
-  const { body: feed } = await api('/api/changes?since=0');
+  const { body: feed } = await api('/api/changes?since=0&actor=all');
   assert.ok(
     Math.max(...feed.entries.map((e: any) => e.rev)) > highest,
     'and the next op continues above it rather than colliding',
