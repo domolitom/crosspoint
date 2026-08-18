@@ -1,10 +1,17 @@
 # Crosspoint
 
+<p align="center">
+  <img src="assets/logo-512.png" alt="Crosspoint" width="220" />
+</p>
+
 A way to talk to an AI agent in pictures.
 
 The name is the point: a crosspoint is where two things meet at a shared coordinate. You and
 the agent edit the same graph, so you are always looking at the same thing — instead of the
 agent reconstructing an approximation from a screenshot.
+
+The mark is the same idea: one line of dots is you, the other is the agent, and the dot
+where they cross is violet — both colours at once, one shared point.
 
 ## The problem
 
