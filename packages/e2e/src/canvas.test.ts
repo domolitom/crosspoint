@@ -841,9 +841,19 @@ test('a swatch colours a selected edge, line and arrowhead together', async () =
   const before = await edgePaint(edge);
   assert.ok(before, 'the edge path did not render');
 
-  await stack.page.locator(`.react-flow__edge[data-id="${edge}"] .react-flow__edge-path`).click({ force: true });
+  /*
+   * Retry the click rather than clicking once and waiting for the palette.
+   *
+   * A click that lands before React Flow has finished fitting the view is discarded, and
+   * no amount of waiting afterwards recovers it — this failed one standalone run in three
+   * while passing the others. Same fix as the mixed-selection test above.
+   */
+  const path = `.react-flow__edge[data-id="${edge}"] .react-flow__edge-path`;
   const swatch = stack.page.locator('.swatch[aria-label="red"]');
-  await until('the palette to accept an edge selection', async () => !(await swatch.isDisabled()));
+  await until('the palette to accept an edge selection', async () => {
+    await stack.page.locator(path).click({ force: true });
+    return !(await swatch.isDisabled());
+  });
   await swatch.click();
 
   const stored = await until('the colour to reach the server', async () => {
