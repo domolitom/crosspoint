@@ -179,6 +179,32 @@ export async function openCanvas(stack: Stack, expectNodes = 0): Promise<void> {
       async () => (await stack.page.locator('.react-flow__node').count()) >= expectNodes,
     );
   }
+  await settleViewport(stack.page);
+}
+
+/**
+ * Wait until React Flow has stopped moving the viewport.
+ *
+ * `fitView` animates, and a diagram switch re-fits. Measured: across a switch the transform
+ * moves for ~250ms and the first node's x travels 102 -> 562. A click computed from a bounding
+ * box taken during that window lands ~460px from where the node ends up, and the click is
+ * simply discarded — which reads as "selection is broken" or a silent timeout, not as a race.
+ * Three flaky tests all had this one cause.
+ *
+ * Cheap when nothing is moving: on a settled canvas it returns after three quick samples.
+ */
+export async function settleViewport(page: Page): Promise<void> {
+  let previous: string | null = null;
+  let stable = 0;
+  await until('the viewport to stop moving', async () => {
+    const now = await page.evaluate(() => {
+      const vp = document.querySelector('.react-flow__viewport');
+      return vp ? getComputedStyle(vp).transform : 'none';
+    });
+    stable = now === previous ? stable + 1 : 0;
+    previous = now;
+    return stable >= 3;
+  });
 }
 
 /** Centre of a node in page coordinates, for driving the mouse. */
