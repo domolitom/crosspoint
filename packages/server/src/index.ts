@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { structuralView, summarise, withoutLayout, type GraphOp } from '@crosspoint/core';
 import { WebSocketServer, type WebSocket } from 'ws';
 
+import { serveStatic, webDir } from './static.js';
 import { StaleRevError, UnknownDiagramError, Workspace } from './workspace.js';
 
 const PORT = Number(process.env.CROSSPOINT_PORT ?? 4000);
@@ -113,6 +114,12 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { rev: graph.rev, graph: structuralView(graph) });
     }
 
+    // The built canvas, last so every `/api` route wins and a missing endpoint still 404s
+    // as JSON rather than being answered with HTML.
+    if (req.method === 'GET' && !url.pathname.startsWith('/api/')) {
+      if (await serveStatic(url.pathname, res)) return;
+    }
+
     return json(res, 404, { error: 'Not found' });
   } catch (err) {
     const status =
@@ -178,8 +185,9 @@ async function readJson(req: IncomingMessage): Promise<Record<string, any>> {
 }
 
 server.listen(PORT, () => {
-  console.log(`crosspoint server  http://localhost:${PORT}`);
+  console.log(`crosspoint         http://localhost:${PORT}`);
   console.log(`diagrams           ${store.dir}  (active: ${store.active})`);
+  console.log(`canvas             ${webDir()}`);
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
