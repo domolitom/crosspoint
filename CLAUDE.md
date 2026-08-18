@@ -306,6 +306,13 @@ integration-only test would pass with the guard removed.
 instead of a JSON 404. And a missing *asset* must 404 rather than fall back to `index.html` —
 serving HTML for an absent script turns a 404 into a syntax error, which is far harder to read.
 
+**`fitView` animates, so a click before it settles is thrown away.** Measured across a diagram
+switch: the viewport transform moves for ~250ms while the first node's x travels 102 -> 562. A
+click computed from a bounding box taken in that window lands ~460px off and is simply
+discarded — which surfaces as "selection is broken" or a bare timeout, never as a race. Three
+separate flaky tests had this one cause. `openCanvas` now calls `settleViewport`, and every
+diagram switch must too.
+
 **The canvas has no error surface.** A dropped interaction just does nothing. Three separate
 defects were invisible for exactly this reason. Verify canvas changes by driving a real
 browser and asserting against the HTTP API — not by reasoning about the code.
