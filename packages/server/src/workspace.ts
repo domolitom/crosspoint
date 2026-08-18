@@ -88,6 +88,8 @@ export class Workspace {
     let mode: 'dir' | 'file' = 'dir';
     let dir = full;
     let seed: string | undefined;
+    /** True when we are about to create the directory rather than adopt an existing one. */
+    let fresh = false;
 
     try {
       const info = await stat(full);
@@ -106,10 +108,29 @@ export class Workspace {
         mode = 'file';
         dir = dirname(full);
         seed = basename(full).replace(/\.json$/, '');
+      } else {
+        fresh = true;
       }
     }
 
     await mkdir(dir, { recursive: true });
+
+    /*
+     * A workspace we created ignores itself.
+     *
+     * Diagrams live inside the project being worked on, and that project's `.gitignore` is
+     * not ours to edit. A `*` here keeps the folder out of its git without touching anything
+     * we do not own. Only for a directory we just made: pointed at somewhere that already
+     * exists, silently ignoring its contents would be presumptuous.
+     */
+    if (fresh && mode === 'dir') {
+      const ignore = join(dir, '.gitignore');
+      try {
+        await stat(ignore);
+      } catch {
+        await writeFile(ignore, '*\n', 'utf8');
+      }
+    }
 
     // In file mode the sidecars keep the old `<base>.ops.jsonl` naming so an existing
     // history carries over rather than being orphaned by this change.
