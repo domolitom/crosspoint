@@ -90,6 +90,11 @@ body,
 }
 
 .lens-panel .lens-panel-bar {
+  /* The bar is the drag handle. `touch-action: none` so a drag is not stolen by scrolling,
+     and no text selection so dragging does not highlight the breadcrumb instead. */
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -97,6 +102,15 @@ body,
   border-bottom: 1px solid #e2e5ea;
   background: #f7f8fa;
   font-size: 12px;
+}
+
+.lens-panel .lens-panel-bar:active {
+  cursor: grabbing;
+}
+
+/* Buttons in the bar keep a normal pointer — they are click targets, not drag handles. */
+.lens-panel .lens-panel-bar button {
+  cursor: pointer;
 }
 
 .lens-panel .lens-crumbs {

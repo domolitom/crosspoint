@@ -21,6 +21,19 @@ interface Size {
   h: number;
 }
 
+interface Placement {
+  size: Size;
+  /**
+   * Where the user dragged the panel to, in viewport pixels. Absent means "anchored beside
+   * the node", which is the default.
+   *
+   * Absolute rather than an offset from the anchor: the point of moving it is to get it out
+   * of the way, and re-anchoring on the next open would undo exactly that. Double-clicking
+   * the header clears it and returns to anchored.
+   */
+  at?: { x: number; y: number };
+}
+
 const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min), max);
 
 /**
@@ -32,30 +45,41 @@ const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min)
  * part of anyone's message. Keyed by diagram, not by node, because a dense subgraph wants
  * a big panel whichever node happens to link to it.
  */
-const sizeKey = (diagram: string) => `crosspoint.lens.size.${diagram}`;
+const placementKey = (diagram: string) => `crosspoint.lens.size.${diagram}`;
 
-function loadSize(diagram: string | undefined): Size {
-  if (!diagram) return DEFAULT_SIZE;
+function loadPlacement(diagram: string | undefined): Placement {
+  if (!diagram) return { size: DEFAULT_SIZE };
   try {
-    const raw = window.localStorage.getItem(sizeKey(diagram));
+    const raw = window.localStorage.getItem(placementKey(diagram));
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<Size>;
-      if (typeof parsed.w === 'number' && typeof parsed.h === 'number') {
-        return { w: parsed.w, h: parsed.h };
-      }
+      const parsed = JSON.parse(raw) as Partial<Size> & { at?: { x: number; y: number } };
+      const size =
+        typeof parsed.w === 'number' && typeof parsed.h === 'number'
+          ? { w: parsed.w, h: parsed.h }
+          : DEFAULT_SIZE;
+      const at =
+        parsed.at && typeof parsed.at.x === 'number' && typeof parsed.at.y === 'number'
+          ? parsed.at
+          : undefined;
+      return { size, at };
     }
   } catch {
     // A quota error or private-mode block must not stop the panel from opening.
   }
-  return DEFAULT_SIZE;
+  return { size: DEFAULT_SIZE };
 }
 
-function saveSize(diagram: string | undefined, size: Size): void {
+function savePlacement(diagram: string | undefined, placement: Placement): void {
   if (!diagram) return;
   try {
-    window.localStorage.setItem(sizeKey(diagram), JSON.stringify(size));
+    // Flattened so an older entry that stored only { w, h } still reads back.
+    const { size, at } = placement;
+    window.localStorage.setItem(
+      placementKey(diagram),
+      JSON.stringify(at ? { ...size, at } : { ...size }),
+    );
   } catch {
-    // Losing a remembered size is not worth surfacing an error for.
+    // Losing a remembered placement is not worth surfacing an error for.
   }
 }
 
@@ -91,15 +115,18 @@ export function SubcanvasPanel({
   const diagram = current?.diagram;
 
   // Hooks run before the early return below, so they cannot be called conditionally.
-  const [size, setSize] = useState<Size>(() => loadSize(diagram));
-  const latest = useRef(size);
-  latest.current = size;
+  const [placement, setPlacement] = useState<Placement>(() => loadPlacement(diagram));
+  const size = placement.size;
+  const latest = useRef(placement);
+  latest.current = placement;
   /** Pointer origin and the size at grab time; null when not resizing. */
   const from = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  /** Pointer origin and the panel corner at grab time; null when not moving. */
+  const moveFrom = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
 
-  // Lensing deeper swaps which diagram the panel shows, so pick up that one's size.
+  // Lensing deeper swaps which diagram the panel shows, so pick up that one's placement.
   useEffect(() => {
-    setSize(loadSize(diagram));
+    setPlacement(loadPlacement(diagram));
   }, [diagram]);
 
   const onResizeDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -110,18 +137,21 @@ export function SubcanvasPanel({
     from.current = {
       x: event.clientX,
       y: event.clientY,
-      w: latest.current.w,
-      h: latest.current.h,
+      w: latest.current.size.w,
+      h: latest.current.size.h,
     };
   }, []);
 
   const onResizeMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const start = from.current;
     if (!start) return;
-    setSize({
-      w: clamp(start.w + (event.clientX - start.x), MIN_SIZE.w, window.innerWidth - 32),
-      h: clamp(start.h + (event.clientY - start.y), MIN_SIZE.h, window.innerHeight - 72),
-    });
+    setPlacement((current) => ({
+      ...current,
+      size: {
+        w: clamp(start.w + (event.clientX - start.x), MIN_SIZE.w, window.innerWidth - 32),
+        h: clamp(start.h + (event.clientY - start.y), MIN_SIZE.h, window.innerHeight - 72),
+      },
+    }));
   }, []);
 
   const onResizeUp = useCallback(
@@ -130,7 +160,67 @@ export function SubcanvasPanel({
       from.current = null;
       event.currentTarget.releasePointerCapture(event.pointerId);
       // Persist on release rather than per frame: one write per gesture, not per pixel.
-      saveSize(diagram, latest.current);
+      savePlacement(diagram, latest.current);
+    },
+    [diagram],
+  );
+
+  /**
+   * Drag the panel by its header.
+   *
+   * Anchoring alone was not enough: a panel beside its node covers the very part of the
+   * parent it exists to keep visible. Only the bar itself starts a move — the crumbs and the
+   * close button are buttons, and the body is a live canvas that must keep its own panning.
+   */
+  const onMoveDown = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      // A click on a crumb or the close button is not a drag.
+      if ((event.target as HTMLElement).closest('button')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      const box = event.currentTarget.parentElement?.getBoundingClientRect();
+      moveFrom.current = {
+        x: event.clientX,
+        y: event.clientY,
+        left: box?.left ?? 0,
+        top: box?.top ?? 0,
+      };
+    },
+    [],
+  );
+
+  const onMoveMove = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    const start = moveFrom.current;
+    if (!start) return;
+    const { w, h } = latest.current.size;
+    setPlacement((cur) => ({
+      ...cur,
+      // Clamped so it cannot be dragged off-screen and become unreachable.
+      at: {
+        x: clamp(start.left + (event.clientX - start.x), 0, window.innerWidth - w),
+        y: clamp(start.top + (event.clientY - start.y), 0, window.innerHeight - h),
+      },
+    }));
+  }, []);
+
+  const onMoveUp = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      if (!moveFrom.current) return;
+      moveFrom.current = null;
+      event.currentTarget.releasePointerCapture(event.pointerId);
+      savePlacement(diagram, latest.current);
+    },
+    [diagram],
+  );
+
+  /** Double-click the bar to give up a dragged position and re-anchor to the node. */
+  const onResetPlacement = useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      if ((event.target as HTMLElement).closest('button')) return;
+      const next = { size: latest.current.size };
+      setPlacement(next);
+      savePlacement(diagram, next);
     },
     [diagram],
   );
@@ -140,8 +230,14 @@ export function SubcanvasPanel({
   // Anchored beside the node, then clamped into the viewport so a node near the right or
   // bottom edge does not open a panel half off-screen. Uses the live size, so a resized
   // panel stays on screen rather than being clamped against its original dimensions.
-  const left = Math.min(current.anchor.x + 24, window.innerWidth - size.w - 16);
-  const top = Math.min(Math.max(current.anchor.y - 40, 56), window.innerHeight - size.h - 16);
+  // A position the user dragged to wins over the anchor; clamped in case the window has
+  // since been resized smaller than it was when they placed it.
+  const left = placement.at
+    ? clamp(placement.at.x, 0, Math.max(0, window.innerWidth - size.w))
+    : Math.min(current.anchor.x + 24, window.innerWidth - size.w - 16);
+  const top = placement.at
+    ? clamp(placement.at.y, 0, Math.max(0, window.innerHeight - size.h))
+    : Math.min(Math.max(current.anchor.y - 40, 56), window.innerHeight - size.h - 16);
 
   return (
     <aside
@@ -149,7 +245,15 @@ export function SubcanvasPanel({
       style={{ left, top, width: size.w, height: size.h }}
       aria-label={`Subcanvas ${current.diagram}`}
     >
-      <header className="lens-panel-bar">
+      <header
+        className="lens-panel-bar"
+        title="Drag to move, double-click to re-anchor"
+        onPointerDown={onMoveDown}
+        onPointerMove={onMoveMove}
+        onPointerUp={onMoveUp}
+        onPointerCancel={onMoveUp}
+        onDoubleClick={onResetPlacement}
+      >
         <nav className="lens-crumbs" aria-label="Subcanvas trail">
           {trail.map((step, index) => (
             <span key={`${step.diagram}-${index}`}>
