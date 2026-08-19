@@ -1438,3 +1438,108 @@ test('double-clicking an edge does not also create a node', async () => {
     'the pane double-click handler must not fire for an edge',
   );
 });
+
+/**
+ * Moving the lens panel.
+ *
+ * The panel is anchored beside its node, which means it covers the part of the parent it
+ * exists to keep visible — the user reported it as a bug and they were right. Dragging the
+ * header moves it; the position sticks per diagram, and double-clicking the bar re-anchors.
+ */
+test('the lens panel can be dragged by its header', async () => {
+  const seedIn = await freshDiagram('panel-move');
+  const parent = await seedIn('Move parent', 0, 0);
+  await stack.createDiagram('panel-move-child');
+  await stack.op(
+    {
+      op: 'generate_graph',
+      nodes: [{ label: 'Inner one' }, { label: 'Inner two' }],
+      edges: [{ source: 'inner-one', target: 'inner-two' }],
+      replace: true,
+    },
+    'panel-move-child',
+  );
+  await stack.op({ op: 'update_node', id: parent, subcanvas: 'panel-move-child' }, 'panel-move');
+
+  await until('the lens badge to appear', async () =>
+    (await stack.page.locator(`.react-flow__node[data-id="${parent}"] .cp-lens`).count()) > 0,
+  );
+  await stack.page.locator(`.react-flow__node[data-id="${parent}"] .cp-lens`).click();
+  await stack.page.waitForSelector('.lens-panel');
+
+  const anchored = await stack.page.locator('.lens-panel').boundingBox();
+  assert.ok(anchored, 'the panel has no box');
+
+  const bar = await stack.page.locator('.lens-panel-bar').boundingBox();
+  assert.ok(bar, 'no header to grab');
+  await dragMouse(
+    stack.page,
+    { x: bar.x + bar.width / 2, y: bar.y + bar.height / 2 },
+    { x: bar.x + bar.width / 2 - 240, y: bar.y + bar.height / 2 + 120 },
+  );
+
+  const moved = await until('the panel to move', async () => {
+    const box = await stack.page.locator('.lens-panel').boundingBox();
+    return box && Math.abs(box.x - anchored.x) > 100 ? box : null;
+  });
+  assert.ok(
+    Math.abs(moved.x - (anchored.x - 240)) < 24 && Math.abs(moved.y - (anchored.y + 120)) < 24,
+    `expected ~(${anchored.x - 240}, ${anchored.y + 120}), got (${moved.x}, ${moved.y})`,
+  );
+});
+
+// Dragging inside the panel is the sub-canvas's own gesture, not the panel's.
+test('dragging the panel body pans the subcanvas instead of moving the panel', async () => {
+  const panel = await stack.page.locator('.lens-panel').boundingBox();
+  const body = await stack.page.locator('.lens-panel-body').boundingBox();
+  assert.ok(panel && body);
+
+  /*
+   * Grab a corner, not the centre. The centre of a two-node subgraph sits on the edge path
+   * between them, so a drag there grabs the edge and nothing pans — which looks exactly like
+   * "panning is broken". Verified with elementFromPoint: the corner is `react-flow__pane`.
+   */
+  const from = { x: body.x + 40, y: body.y + body.height - 40 };
+  const transform = () =>
+    stack.page.evaluate(() => {
+      const vp = document.querySelector('.lens-panel .react-flow__viewport');
+      return vp ? getComputedStyle(vp).transform : 'none';
+    });
+
+  const before = await transform();
+  await dragMouse(stack.page, from, { x: from.x + 110, y: from.y - 60 });
+
+  await until('the subcanvas to pan', async () => (await transform()) !== before);
+  const after = await stack.page.locator('.lens-panel').boundingBox();
+  assert.ok(
+    Math.abs(after!.x - panel.x) < 4 && Math.abs(after!.y - panel.y) < 4,
+    'the panel itself must not have moved',
+  );
+});
+
+test('a dragged panel is remembered, and double-clicking the bar re-anchors it', async () => {
+  const moved = await stack.page.locator('.lens-panel').boundingBox();
+  assert.ok(moved);
+
+  await stack.page.locator('.lens-panel .lens-close').click();
+  await until('the panel to close', async () =>
+    (await stack.page.locator('.lens-panel').count()) === 0,
+  );
+  const parent = (await stack.graph('panel-move')).nodes.find((n: any) => n.data.subcanvas);
+  await stack.page.locator(`.react-flow__node[data-id="${parent.id}"] .cp-lens`).click();
+  await stack.page.waitForSelector('.lens-panel');
+
+  const reopened = await until('the panel to reopen where it was left', async () => {
+    const box = await stack.page.locator('.lens-panel').boundingBox();
+    return box && Math.abs(box.x - moved.x) < 6 && Math.abs(box.y - moved.y) < 6 ? box : null;
+  });
+  assert.ok(reopened, 'the dragged position should survive a reopen');
+
+  const bar = await stack.page.locator('.lens-panel-bar').boundingBox();
+  await stack.page.mouse.dblclick(bar!.x + bar!.width / 2, bar!.y + bar!.height / 2);
+
+  await until('the panel to re-anchor away from the dragged spot', async () => {
+    const box = await stack.page.locator('.lens-panel').boundingBox();
+    return box ? Math.abs(box.x - moved.x) > 50 : false;
+  });
+});

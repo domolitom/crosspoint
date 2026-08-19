@@ -334,6 +334,16 @@ diagram switch must too.
 defects were invisible for exactly this reason. Verify canvas changes by driving a real
 browser and asserting against the HTTP API — not by reasoning about the code.
 
+**The lens panel is draggable by its header, and that had to be a bug fix.** Anchored beside
+its node it covers the part of the parent it exists to keep visible. A dragged position wins
+over the anchor and persists per diagram in localStorage; double-clicking the bar clears it.
+Only the bar starts a move — the crumbs and close button are buttons, and the body is a live
+canvas that keeps its own panning.
+
+**The centre of a small subgraph is on an edge, not on the pane.** A drag there grabs the edge
+and nothing pans, which reads as "panning is broken". Probe with `elementFromPoint` and grab a
+corner: `react-flow__pane` is what you want under the cursor.
+
 **The lens panel must be `position: fixed`.** Its `left`/`top` come from a screen-pixel
 anchor clamped against `window.innerWidth`/`innerHeight`. While it was `absolute` those
 coordinates resolved against a positioned ancestor below the header, so the panel rendered
