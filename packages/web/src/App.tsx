@@ -1,6 +1,6 @@
 import '@xyflow/react/dist/style.css';
 import { NODE_COLORS, type ColorInput, type GraphOp } from '@crosspoint/core';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { GraphCanvas } from './GraphCanvas';
 import { LabelInput } from './LabelInput';
@@ -17,6 +17,7 @@ export default function App() {
     error,
     setError,
     sendOp,
+    revert,
     loadDiagram,
     switchDiagram,
     createDiagram,
@@ -42,6 +43,50 @@ export default function App() {
   const selectedCount = selection.nodes.length + selection.edges.length;
 
   const closePanel = useCallback(() => setTrail([]), []);
+
+  /**
+   * Cmd+Z / Ctrl+Z to undo, Cmd+Shift+Z or Ctrl+Y to redo.
+   *
+   * Bound on the document rather than the canvas: the target depends on which canvas the
+   * user was working in, which App knows and neither canvas does. Read through a ref so the
+   * listener is attached once instead of being torn down on every trail change.
+   */
+  const undoTarget = useRef<string>('');
+  undoTarget.current = trail.length ? trail[trail.length - 1].diagram : diagram ?? '';
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+
+      /*
+       * Never while a text field has focus.
+       *
+       * Cmd+Z in an input must be the browser's own text undo. Reverting the graph instead
+       * would be both surprising and destructive — you are mid-rename, so the node you are
+       * renaming is the thing that would disappear.
+       */
+      const active = document.activeElement as HTMLElement | null;
+      if (
+        active &&
+        (active.tagName === 'INPUT' ||
+          active.tagName === 'TEXTAREA' ||
+          active.isContentEditable)
+      ) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      // Ctrl+Y as well, because that is what Windows users reach for.
+      const redo = (key === 'z' && event.shiftKey) || (key === 'y' && !event.metaKey);
+      if (key !== 'z' && !(key === 'y' && !event.metaKey)) return;
+
+      event.preventDefault();
+      revert(redo ? 'redo' : 'undo', undoTarget.current || undefined);
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [revert]);
 
   /**
    * Open a node's subcanvas, creating one if it has none.

@@ -83,6 +83,17 @@ export function useGraph() {
   }, []);
 
   /**
+   * Step a diagram's history. Goes over the socket like an op, so the server attributes it
+   * to the canvas rather than to an agent, and every connected client sees the result.
+   */
+  const revert = useCallback((direction: 'undo' | 'redo', target?: string) => {
+    const ws = socket.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: direction, diagram: target }));
+    }
+  }, []);
+
+  /**
    * Seed a diagram we have not been pushed yet.
    *
    * The socket only sends the active diagram on connect, so opening a panel needs one
@@ -144,6 +155,7 @@ export function useGraph() {
     error,
     setError,
     sendOp,
+    revert,
     loadDiagram,
     switchDiagram,
     createDiagram,
