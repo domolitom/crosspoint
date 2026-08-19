@@ -256,3 +256,33 @@ test('the summary names the actor only when the set mixes them', () => {
   ]);
   assert.ok(!single.includes('human'), `a single-actor set needs no column, got:\n${single}`);
 });
+
+test('a revert says what it reverted', () => {
+  assert.equal(
+    describeOp({ op: 'undo', target: { op: 'add_node', label: 'retry' } }),
+    'undid: + node "retry"',
+  );
+  assert.equal(
+    describeOp({ op: 'redo', target: { op: 'delete_edge', id: 'a->b' } }),
+    'redid: − edge a->b',
+  );
+});
+
+// A revert is exactly as noisy as the thing it reverted: undoing a drag put boxes back,
+// undoing an added node changed what exists.
+test('a revert inherits the kind of its target', () => {
+  assert.equal(kindOf({ op: 'undo', target: { op: 'add_node', label: 'x' } }), 'structural');
+  assert.equal(
+    kindOf({ op: 'undo', target: { op: 'move_node', id: 'x', position: { x: 0, y: 0 } } }),
+    'layout',
+  );
+  assert.equal(kindOf({ op: 'redo', target: { op: 'external_edit' } }), 'external');
+});
+
+test('undoing a drag is filtered out of a default feed, undoing a node is not', () => {
+  const feed = [
+    entry(1, { op: 'undo', target: { op: 'move_node', id: 'a', position: { x: 0, y: 0 } } }),
+    entry(2, { op: 'undo', target: { op: 'add_node', label: 'retry' } }),
+  ];
+  assert.deepEqual(withoutLayout(feed).map((e) => e.rev), [2]);
+});
