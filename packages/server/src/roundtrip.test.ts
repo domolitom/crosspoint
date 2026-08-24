@@ -124,9 +124,15 @@ test('agent structural edits do not disturb a human-placed node', async () => {
   await agentOp({ op: 'add_edge', source: 'auth-service', target: 'database' });
   await agentOp({ op: 'update_node', id: 'auth-service', label: 'Auth API' });
 
+  // Wait for the relabel itself, not just the node and edge counts. Those become true one
+  // write earlier, so a predicate that stops there can read the file back before the
+  // relabel has flushed and assert against the pre-edit label.
   const graph = await until('edits to settle on disk', async () => {
     const g = await readGraphFile();
-    return g.nodes.length === 2 && g.edges.length === 1 ? g : null;
+    const auth = g.nodes.find((n: any) => n.id === 'auth-service');
+    return g.nodes.length === 2 && g.edges.length === 1 && auth?.data.label === 'Auth API'
+      ? g
+      : null;
   });
 
   const auth = graph.nodes.find((n: any) => n.id === 'auth-service');
@@ -211,7 +217,12 @@ test('the canvas view includes coordinates', async () => {
 });
 
 test('a hand edit of the file on disk reaches the canvas', async () => {
-  const graph = await readGraphFile();
+  // A single read races the debounced write that added `database`, and an absent node
+  // surfaces as `undefined.data` rather than as the timeout it really is.
+  const graph = await until('database to be on disk before editing it', async () => {
+    const g = await readGraphFile();
+    return g.nodes.some((n: any) => n.id === 'database') ? g : null;
+  });
   graph.nodes.find((n: any) => n.id === 'database').data.label = 'Postgres';
   const before = received.length;
   await writeFile(graphPath, JSON.stringify(graph, null, 2), 'utf8');
