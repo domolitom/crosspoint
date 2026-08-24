@@ -106,8 +106,13 @@ or you will keep talking to the old tool schema.
 
 ## The agent surface
 
-The agent gets structural operations only: `get_graph`, `add_node`, `add_edge`,
-`reconnect_edge`, `update_node`, `update_edge`, `delete_node`, `delete_edge`.
+The agent gets sixteen tools, and not one of them can express a coordinate.
+
+- **read** — `get_graph`, `get_changes`, `list_diagrams`
+- **structure** — `add_node`, `add_edge`, `reconnect_edge`, `update_node`, `update_edge`,
+  `delete_node`, `delete_edge`, `generate_graph`
+- **diagrams** — `create_diagram`, `switch_diagram`, `create_subdiagram`
+- **tidying** — `align`, `distribute`, which name an intent the server resolves into geometry
 
 **There is deliberately no tool for moving a node.** Coordinates are absent from every write
 tool — not discouraged, not approval-gated, architecturally missing from the schema. An agent
@@ -137,31 +142,36 @@ geometry. It is also note-centric (text/file/link/group) rather than a general l
 
 ## Status
 
-Working prototype. What runs today:
+Working prototype, developed using itself — the plans in this repo were drawn in it. What
+runs today:
 
 - graph model with position as first-class data, ops, size-aware placement, stable
   serialisation
 - server owning graph state, persisting atomically, syncing live over websocket, and
   picking up external edits to the file
-- React Flow canvas: drag, connect, reconnect, select, delete, rename, drag-from-palette to
-  create, nodes auto-sized to their labels
-- MCP server exposing the eight structural tools above
-- tests for the graph model and an end-to-end suite driving a real server process
+- React Flow canvas: drag, connect, reconnect, select, delete, rename, resize,
+  drag-from-palette to create, nodes auto-sized to their labels, undo and redo
+- node and edge colour, stored by name rather than hex so the value still means something
+  to whoever reads it back
+- named diagrams in a directory, one active, with a switcher in the header
+- **subcanvases** — a node references another diagram, opened in a floating, editable panel
+  anchored to that node and navigable by breadcrumb. Deleting the parent node orphans the
+  subcanvas rather than destroying it
+- **`generate_graph`** — one operation creating a whole graph, laid out hierarchically with
+  dagre, refusing a non-empty diagram unless `replace: true`
+- **append-only op log** behind `get_changes`, with a server-tracked watermark, so the agent
+  can read what changed since it last looked
+- **semantic layout ops** (`align`, `distribute`) that the server resolves into geometry, so
+  the agent can tidy without expressing coordinates
+- MCP server exposing the sixteen tools above
+- tests for the graph model and the server, plus a Playwright suite driving a real browser
+  against a real stack
 
 Designed and agreed, not yet built:
 
-- **append-only op log** behind `get_changes`, with a server-tracked watermark, so the agent
-  can read what changed since it last looked
-- **`generate_graph`** — one operation creating a whole graph, laid out hierarchically with
-  dagre, refusing a non-empty diagram unless `replace: true`
-- **named diagrams** — a directory of them, one active, with a switcher in the header
-- **subcanvases** — a node references another diagram; a lens badge opens it in a floating,
-  editable panel anchored to that node, one at a time, navigating within itself by breadcrumb.
-  Deleting the parent node orphans the subcanvas rather than destroying it
 - **code references** in node `data` (file, symbol, lines) so the agent knows which function
   a box is
-- **semantic layout ops** (`align` and similar) that the server resolves into geometry, so the
-  agent can tidy without expressing coordinates
-- **a committed Playwright browser suite** as the verification bar
+- **batched edits** — you edit freely and nothing happens until you say go, so the agent
+  never acts on a change the moment it lands
 
 Nothing here has auth. The server binds locally and trusts its callers.
