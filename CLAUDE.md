@@ -287,6 +287,23 @@ use it.
 on the edge lands on delete instead of opening the editor. Dispatch the event to the element
 when the point is contested, and keep one positional test to prove the edge is hittable.
 
+**Undo is snapshots, not inverse ops, and the stacks are per diagram.** Inverting
+`delete_node` needs the cascade-removed edges, `generate_graph` with `replace` needs the whole
+prior graph — all of which means storing prior state anyway. `rev` counts the workspace but
+history must not, or one Cmd+Z would silently alter a diagram nobody is looking at. A revert
+inherits its target's `kind`, so undoing a drag is feed noise and undoing an added node is not.
+
+**Two independent layers stop Cmd+Z reverting the graph while a label is being edited**, and
+that is deliberate. `LabelInput` calls `stopPropagation` so the document listener never fires
+at all; the listener *also* checks `document.activeElement`. Removing either alone keeps the
+e2e test green — removing both fails it. So do not delete one as "dead code": it is only
+unreachable while the other holds, and the failure it prevents is destructive (mid-rename, the
+node you are renaming is exactly what an errant undo removes).
+
+**A mutation test that does not assert its pattern matched proves nothing.** A `str.replace`
+that silently finds no match leaves the code intact, the suite green, and the false impression
+that a guard is unnecessary. That happened here and briefly hid which layer was load-bearing.
+
 **An inline input must stop its own key events.** React Flow listens for Backspace and Delete
 to remove the selection and for space to pan, so typing a label would delete the node being
 renamed. `LabelInput` calls `stopPropagation` on every key event; there is an e2e test that

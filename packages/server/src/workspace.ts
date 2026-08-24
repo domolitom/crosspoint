@@ -2,7 +2,14 @@ import { watch, type FSWatcher } from 'node:fs';
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 
-import { applyOp, type Actor, type Graph, type GraphOp, type LogEntry } from '@crosspoint/core';
+import {
+  applyOp,
+  type Actor,
+  type Graph,
+  type GraphOp,
+  type LogEntry,
+  type LoggedOp,
+} from '@crosspoint/core';
 
 import { DiagramFile, StaleRevError } from './diagram.js';
 import { OpLog } from './oplog.js';
@@ -56,6 +63,29 @@ const isSidecar = (file: string) =>
   file.endsWith('.state.json') || file.endsWith('.ops.jsonl') || file.includes('.tmp');
 
 /**
+ * How many steps back a diagram remembers.
+ *
+ * In memory only. History surviving a restart is not something anyone expects of undo, and
+ * persisting it would invite a stack that no longer matches a file someone edited by hand.
+ */
+const HISTORY_LIMIT = 50;
+
+/**
+ * One step back: the graph as it was, and the op that moved it on from there.
+ *
+ * Snapshots rather than inverse ops. Inverting `delete_node` needs the node *and* the edges
+ * its cascade removed; `generate_graph` with `replace` needs the whole previous graph;
+ * `reconnect_edge` needs its old endpoints. Every one of those means keeping prior state
+ * anyway, so keep the state and skip the algebra — these graphs are tens of nodes.
+ *
+ * The op rides along only so the feed can say *what* was undone.
+ */
+interface HistoryStep {
+  graph: Graph;
+  op: LoggedOp;
+}
+
+/**
  * Owns every diagram in a directory, and the single history that spans them.
  *
  * `rev` is one monotonic counter for the whole workspace, not per diagram. That is what
@@ -73,6 +103,13 @@ export class Workspace {
   private watcher?: FSWatcher;
   private revValue = 0;
   private activeName = '';
+  /**
+   * Undo/redo stacks per diagram, not per workspace.
+   *
+   * `rev` counts the workspace, but history must not: a workspace-wide stack would let one
+   * Cmd+Z silently alter a diagram the user is not looking at.
+   */
+  private history = new Map<string, { undo: HistoryStep[]; redo: HistoryStep[] }>();
 
   private constructor(
     readonly dir: string,
@@ -246,8 +283,70 @@ export class Workspace {
     // only ever contains changes that actually happened. The rev it computes is discarded
     // in favour of the workspace counter.
     const next = { ...applyOp(graph, op), rev: this.nextRev() };
+    // Push before replacing: the step remembers the graph as it was, plus the op that moved
+    // it on, so a later undo can say what it undid.
+    this.remember(file.name, graph, op);
     file.replace(next);
     this.log.record(next.rev, op, file.name, options.actor);
+    this.emit({ type: 'graph', diagram: file.name, graph: next, origin: options.origin });
+    return next;
+  }
+
+  private stacks(name: string): { undo: HistoryStep[]; redo: HistoryStep[] } {
+    let entry = this.history.get(name);
+    if (!entry) {
+      entry = { undo: [], redo: [] };
+      this.history.set(name, entry);
+    }
+    return entry;
+  }
+
+  /**
+   * Record a step back, and drop any redo future.
+   *
+   * A new change after an undo makes the old future unreachable — keeping it would turn a
+   * stack into a tree, and nobody expects Cmd+Shift+Z to resurrect a branch they left.
+   */
+  private remember(name: string, before: Graph, op: LoggedOp): void {
+    const stacks = this.stacks(name);
+    stacks.undo.push({ graph: before, op });
+    if (stacks.undo.length > HISTORY_LIMIT) stacks.undo.shift();
+    stacks.redo.length = 0;
+  }
+
+  /** How many steps each way, so a client can grey out what is not possible. */
+  depth(name?: string): { undo: number; redo: number } {
+    const stacks = this.stacks(name ?? this.activeName);
+    return { undo: stacks.undo.length, redo: stacks.redo.length };
+  }
+
+  /**
+   * Step one change back, or forward.
+   *
+   * Returns null when there is nothing to do. Deliberately a no-op rather than an error:
+   * pressing Cmd+Z on a fresh diagram is an ordinary thing to do and should be quiet, not
+   * an error banner.
+   *
+   * The actor is fixed rather than inferred from the transport, unlike an op. Undo has no
+   * agent surface by design — it is a person pressing a key — so there is no other value it
+   * could take, and inferring one would only invite a caller to claim otherwise.
+   */
+  revert(direction: 'undo' | 'redo', options: { diagram?: string; origin?: string } = {}): Graph | null {
+    const file = this.file(options.diagram ?? this.activeName);
+    const stacks = this.stacks(file.name);
+    const from = direction === 'undo' ? stacks.undo : stacks.redo;
+    const step = from.pop();
+    if (!step) return null;
+
+    const to = direction === 'undo' ? stacks.redo : stacks.undo;
+    // The current state becomes the way back, carrying the same op so the return trip can
+    // name it too.
+    to.push({ graph: file.current(), op: step.op });
+    if (to.length > HISTORY_LIMIT) to.shift();
+
+    const next = { ...step.graph, rev: this.nextRev() };
+    file.replace(next);
+    this.log.record(next.rev, { op: direction, target: step.op }, file.name, 'human');
     this.emit({ type: 'graph', diagram: file.name, graph: next, origin: options.origin });
     return next;
   }
@@ -360,6 +459,9 @@ export class Workspace {
     // rev jumps and a reader has no way to know its picture went stale. Record that
     // something happened outside the op stream and let the reader re-read.
     const next = { ...incoming, rev: this.nextRev() };
+    // Undoable like anything else: "undo the last change to this diagram" means the last
+    // change, whoever or whatever made it.
+    this.remember(name, diagram.current(), { op: 'external_edit' });
     diagram.adopt(next);
     // A hand edit to the file is a person acting outside the app, not the agent.
     this.log.record(next.rev, { op: 'external_edit' }, name, 'human');

@@ -113,6 +113,31 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { active: store.active, diagrams: store.list() });
     }
 
+    /*
+     * Undo and redo are workspace-level commands, not GraphOps.
+     *
+     * Deliberately absent from KNOWN_OPS and from the MCP surface: they do not describe a
+     * change to a graph, they replay one, and there is no agent-initiated undo. A missing
+     * history is a quiet no-op rather than an error — pressing Cmd+Z on a fresh diagram is
+     * an ordinary thing to do.
+     */
+    if (req.method === 'POST' && (url.pathname === '/api/undo' || url.pathname === '/api/redo')) {
+      const body = await readJson(req);
+      const direction = url.pathname === '/api/undo' ? 'undo' : 'redo';
+      const target = body.diagram ? String(body.diagram) : undefined;
+      const graph = store.revert(direction, { diagram: target });
+      return json(res, 200, {
+        // `changed: false` says "nothing to undo" without making the caller compare revs.
+        changed: graph !== null,
+        rev: store.rev,
+        depth: store.depth(target),
+      });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/history') {
+      return json(res, 200, store.depth(named));
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/op') {
       const body = await readJson(req);
       const op = body.op as GraphOp | undefined;
@@ -175,6 +200,13 @@ wss.on('connection', (socket: WebSocket) => {
   socket.on('message', (raw) => {
     try {
       const msg = JSON.parse(String(raw));
+      if (msg.type === 'undo' || msg.type === 'redo') {
+        store.revert(msg.type, {
+          diagram: msg.diagram ? String(msg.diagram) : undefined,
+          origin: clientId,
+        });
+        return;
+      }
       if (msg.type !== 'op') return;
       store.apply(msg.op as GraphOp, {
         // The websocket is the canvas, so a person did this.

@@ -20,7 +20,19 @@ export interface ExternalEdit {
   op: 'external_edit';
 }
 
-export type LoggedOp = GraphOp | ExternalEdit;
+/**
+ * A revert, and what it reverted.
+ *
+ * The target is carried rather than looked up because a bare "undo" tells a reader
+ * nothing. Seeing `undid: + node "retry"` is what lets an agent know the intent was
+ * retracted, instead of believing a node exists that no longer does.
+ */
+export interface Revert {
+  op: 'undo' | 'redo';
+  target: LoggedOp;
+}
+
+export type LoggedOp = GraphOp | ExternalEdit | Revert;
 
 /**
  * `layout` is tagged separately so a consumer that only cares about structure can drop
@@ -111,9 +123,13 @@ const REARRANGING_OPS = new Set(['move_node', 'resize_node', 'align', 'distribut
 export const kindOf = (op: LoggedOp): ChangeKind =>
   op.op === 'external_edit'
     ? 'external'
-    : REARRANGING_OPS.has(op.op)
-      ? 'layout'
-      : 'structural';
+    : // A revert inherits its target's kind. Undoing a drag only moved boxes back, so it is
+      // noise for the same reason the drag was; undoing an added node changed what exists.
+      op.op === 'undo' || op.op === 'redo'
+      ? kindOf(op.target)
+      : REARRANGING_OPS.has(op.op)
+        ? 'layout'
+        : 'structural';
 
 const quote = (s: string) => `"${s}"`;
 const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
@@ -185,6 +201,10 @@ export function describeOp(op: LoggedOp): string {
       return `distributed ${count(op.ids.length, 'node')} ${op.axis}ly`;
     case 'external_edit':
       return 'graph file edited outside the server';
+    case 'undo':
+      return `undid: ${describeOp(op.target)}`;
+    case 'redo':
+      return `redid: ${describeOp(op.target)}`;
   }
 }
 
