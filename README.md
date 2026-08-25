@@ -71,21 +71,25 @@ or you keep talking to the old tool schema.
 
 ### Docker
 
-Images are built and published to `ghcr.io` by CI on every push to `master` and every `v*`
-tag.
+CI publishes to `ghcr.io` on every push to `master` (`:latest`, `:master`) and every `v*` tag
+(`:0.1.0`, `:0.1`). Build it yourself with `docker build -t crosspoint .` if you'd rather.
 
 ```bash
-docker run --rm -p 4000:4000 -v "$PWD/.crosspoint:/diagrams" ghcr.io/domolitom/crosspoint
+mkdir -p .crosspoint                    # must exist before it is mounted
+sudo chown 1000:1000 .crosspoint        # Linux only; the image runs as uid 1000
+
+docker run --rm -p 4000:4000 \
+  -v "$PWD/.crosspoint:/diagrams" \
+  ghcr.io/domolitom/crosspoint
 ```
 
-Or build it yourself with `docker build -t crosspoint .`.
+Then open http://localhost:4000.
 
 The volume is not optional — diagrams live in `/diagrams`, and without it your work dies with
-the container. Two things the bind mount implies: the directory has to exist before you
-mount it, so it will not self-ignore and you should add `.crosspoint/` to your own
-`.gitignore`; and the image runs as uid 1000, so on Linux the directory must be writable by
-that uid (`chown 1000:1000 .crosspoint`) or the server dies on startup. Docker Desktop maps
-this for you, which is exactly why it is easy to miss until CI runs.
+the container. Because you create that folder rather than Crosspoint, it will not self-ignore:
+add `.crosspoint/` to your own `.gitignore`. Skipping the `chown` on Linux leaves the folder
+owned by your uid and the server exits on its first write; Docker Desktop maps ownership for
+you, which is why this is easy to miss locally and fails in CI.
 
 The image serves the canvas and API only. The MCP server is stdio and has to run beside your
 agent, so register it on the host as above and point it at `http://localhost:4000`.
