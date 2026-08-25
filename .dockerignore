@@ -2,14 +2,21 @@ node_modules
 **/node_modules
 **/dist
 .git
+.github
+*.log
+.DS_Store
+
+# Diagrams are live documents, never build input. In single-file mode every diagram is
+# written beside graph.json, so root-level JSON is a diagram unless it is one of the configs
+# named below — the same reasoning as .gitignore. Keep the two lists in step.
 .crosspoint
 diagrams
 *.ops.jsonl
 *.state.json
+**/*.ops.jsonl
+**/*.state.json
 graph.json
 /*.json
 !/package.json
 !/package-lock.json
 !/tsconfig.json
-*.log
-.DS_Store

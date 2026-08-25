@@ -34,6 +34,10 @@ COPY --from=build /app/packages/core/dist   packages/core/dist
 COPY --from=build /app/packages/server/dist packages/server/dist
 COPY --from=build /app/packages/web/dist    packages/web/dist
 
+# `tsc` emits tests and declarations beside the code it builds. Neither runs here, and a
+# runtime image that ships its own test suite invites someone to try running it.
+RUN find packages \( -name '*.test.*' -o -name '*.d.ts' \) -delete
+
 # Diagrams are the user's work and must outlive the container.
 VOLUME /diagrams
 EXPOSE 4000
