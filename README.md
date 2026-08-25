@@ -72,7 +72,8 @@ or you keep talking to the old tool schema.
 ### Docker
 
 CI publishes to `ghcr.io` on every push to `master` (`:latest`, `:master`) and every `v*` tag
-(`:0.1.0`, `:0.1`). Build it yourself with `docker build -t crosspoint .` if you'd rather.
+(`:v0.1.0`, `:v0.1`) — the image tag reads the same as the release. Build it yourself with
+`docker build -t crosspoint .` if you'd rather.
 
 ```bash
 mkdir -p .crosspoint                    # must exist before it is mounted
