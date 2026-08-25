@@ -1480,9 +1480,32 @@ test('the lens panel can be dragged by its header', async () => {
     { x: bar.x + bar.width / 2 - 240, y: bar.y + bar.height / 2 + 120 },
   );
 
+  /*
+   * A drag that does nothing is a positioning question before it is a handler question, so
+   * report what was actually under the cursor rather than a bare timeout. This failed on
+   * Linux while passing on macOS, and the bare message said nothing about why.
+   */
+  const grab = { x: bar.x + bar.width / 2, y: bar.y + bar.height / 2 };
   const moved = await until('the panel to move', async () => {
     const box = await stack.page.locator('.lens-panel').boundingBox();
     return box && Math.abs(box.x - anchored.x) > 100 ? box : null;
+  }).catch(async (err) => {
+    const hit = await stack.page.evaluate(({ x, y }) => {
+      const el = document.elementFromPoint(x, y);
+      const panel = document.querySelector('.lens-panel') as HTMLElement | null;
+      return {
+        at: el ? `${el.tagName.toLowerCase()}.${el.className}` : 'nothing',
+        panel: panel ? panel.getBoundingClientRect().toJSON() : null,
+        viewport: { w: window.innerWidth, h: window.innerHeight },
+      };
+    }, grab);
+    throw new Error(
+      `${(err as Error).message}\n` +
+        `  grabbed at (${Math.round(grab.x)}, ${Math.round(grab.y)}) which holds ${hit.at}\n` +
+        `  anchored at (${Math.round(anchored.x)}, ${Math.round(anchored.y)})\n` +
+        `  panel now ${JSON.stringify(hit.panel)}\n` +
+        `  viewport ${JSON.stringify(hit.viewport)}`,
+    );
   });
   assert.ok(
     Math.abs(moved.x - (anchored.x - 240)) < 24 && Math.abs(moved.y - (anchored.y + 120)) < 24,
