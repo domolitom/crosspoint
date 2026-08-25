@@ -39,6 +39,17 @@ Then the diagram becomes a medium of instruction rather than documentation:
 **Your edit is the request.** Moving a box, drawing an edge, or deleting a node is how you
 say what you want, and the agent reads it exactly rather than guessing from an image.
 
+## Subcanvases
+
+A node can have a whole diagram behind it. The lens badge opens that diagram in a floating
+panel which is the *same* editable canvas, not a preview — so detail sits with the step it
+belongs to instead of crowding the picture it explains. The panel drags by its header, and
+deleting a linked node orphans its subcanvas rather than destroying it.
+
+<p align="center">
+  <img src="assets/subcanvas.png" alt="A release pipeline whose CI node opens its own diagram in the lens panel" width="900" />
+</p>
+
 ## Quick start
 
 Needs Node 22+.
