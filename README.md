@@ -82,9 +82,19 @@ or you keep talking to the old tool schema.
 
 ### Docker
 
-CI publishes to `ghcr.io` on every push to `master` (`:latest`, `:master`) and every `v*` tag
-(`:v0.1.0`, `:v0.1`) — the image tag reads the same as the release. Build it yourself with
-`docker build -t crosspoint .` if you'd rather.
+Docker needs no Node, no toolchain and no `npm install` — from a clone, one command:
+
+```bash
+docker compose up
+```
+
+Then open http://localhost:4000. It builds locally the first time, so it works on any
+architecture and before you can reach the published image. If 4000 is taken, use
+`CROSSPOINT_PORT=4001 docker compose up`.
+
+Or pull the published image, which CI builds for **amd64 and arm64** on every push to
+`master` (`:latest`, `:master`) and every `v*` tag (`:v0.1.0`, `:v0.1`) — the image tag reads
+the same as the release:
 
 ```bash
 mkdir -p .crosspoint                    # must exist before it is mounted
@@ -94,8 +104,6 @@ docker run --rm -p 4000:4000 \
   -v "$PWD/.crosspoint:/diagrams" \
   ghcr.io/domolitom/crosspoint
 ```
-
-Then open http://localhost:4000.
 
 The volume is not optional — diagrams live in `/diagrams`, and without it your work dies with
 the container. Because you create that folder rather than Crosspoint, it will not self-ignore:

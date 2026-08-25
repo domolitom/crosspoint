@@ -1,0 +1,18 @@
+# One command from a clean clone, with no Node toolchain on the host:
+#
+#   docker compose up
+#
+# Builds locally if the image is not already present, so it works before the published
+# image is reachable — and on any architecture, since it builds for the host's own.
+services:
+  crosspoint:
+    build: .
+    image: ghcr.io/domolitom/crosspoint:latest
+    ports:
+      # Override when 4000 is already taken:  CROSSPOINT_PORT=4001 docker compose up
+      - "${CROSSPOINT_PORT:-4000}:4000"
+    volumes:
+      # Diagrams belong to the project they describe, so they live beside it rather than in
+      # a Docker volume you cannot open in an editor.
+      - ./.crosspoint:/diagrams
+    restart: unless-stopped
