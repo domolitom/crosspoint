@@ -31,12 +31,23 @@ jobs:
       # The canvas has no error surface, so building is not evidence that it serves.
       - name: Smoke test
         run: |
+          # The image runs as uid 1000, and a bind mount keeps the host's ownership. The
+          # runner checks out as a different uid, so without this the server cannot write
+          # its diagrams and dies on startup — which surfaces only as a refused connection.
           mkdir -p /tmp/diagrams
+          sudo chown 1000:1000 /tmp/diagrams
+
           docker run -d --name cp -p 4000:4000 -v /tmp/diagrams:/diagrams crosspoint:ci
+
+          # Say what the server said however this exits. Without it a failure to start is a
+          # bare `exit 7` from curl and the reason is never printed.
+          trap 'echo "--- container log ---"; docker logs cp || true; docker rm -f cp || true' EXIT
+
           for i in $(seq 30); do
             curl -sf http://localhost:4000/api/graph >/dev/null && break
             sleep 1
           done
+
           curl -sf http://localhost:4000/ >/dev/null
           curl -sf http://localhost:4000/api/graph >/dev/null
           curl -s -X POST http://localhost:4000/api/op \
@@ -44,8 +55,6 @@ jobs:
             -d '{"op":{"op":"add_node","label":"Smoke"}}' >/dev/null
           sleep 2
           grep -q Smoke /tmp/diagrams/graph.json
-          docker logs cp
-          docker rm -f cp
 
       - name: Log in to ghcr.io
         if: github.event_name == 'push'
