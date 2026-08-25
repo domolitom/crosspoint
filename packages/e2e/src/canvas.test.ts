@@ -1474,10 +1474,20 @@ test('the lens panel can be dragged by its header', async () => {
 
   const bar = await stack.page.locator('.lens-panel-bar').boundingBox();
   assert.ok(bar, 'no header to grab');
+
+  /*
+   * Drag away from the nearest edge, not always left.
+   *
+   * A dragged position is clamped to the viewport, and where the panel anchors depends on
+   * where fitView put its node — which differs with font metrics, so it is not the same on
+   * every platform. Hardcoding -240 assumed 240px of room to the left; on Linux the panel
+   * anchored at x=48, the drag clamped at 0, and a working drag looked like a broken one.
+   */
+  const dx = anchored.x >= 240 ? -240 : 240;
   await dragMouse(
     stack.page,
     { x: bar.x + bar.width / 2, y: bar.y + bar.height / 2 },
-    { x: bar.x + bar.width / 2 - 240, y: bar.y + bar.height / 2 + 120 },
+    { x: bar.x + bar.width / 2 + dx, y: bar.y + bar.height / 2 + 120 },
   );
 
   /*
@@ -1508,8 +1518,8 @@ test('the lens panel can be dragged by its header', async () => {
     );
   });
   assert.ok(
-    Math.abs(moved.x - (anchored.x - 240)) < 24 && Math.abs(moved.y - (anchored.y + 120)) < 24,
-    `expected ~(${anchored.x - 240}, ${anchored.y + 120}), got (${moved.x}, ${moved.y})`,
+    Math.abs(moved.x - (anchored.x + dx)) < 24 && Math.abs(moved.y - (anchored.y + 120)) < 24,
+    `expected ~(${anchored.x + dx}, ${anchored.y + 120}), got (${moved.x}, ${moved.y})`,
   );
 });
 
