@@ -266,6 +266,15 @@ does for the layout filter: they are dropped from the *response*, not left unsee
 no-argument read would re-scan the same agent ops forever and never converge. There is a test
 per filter for this.
 
+**The server can read back its own write and call it someone else's.** `persistNow` sets
+`lastWritten` *before* the rename lands, so for the length of that write the file still holds
+the **previous** text — ours, but no longer what `lastWritten` compares against. A watcher
+event in that window was adopted as an external edit: the diagram reverted to the older
+content and a phantom step went onto the undo stack. `reload` now ignores anything whose
+`rev` is older than what is already in memory, which can only be that echo; a hand edit leaves
+the rev alone, so it still reads as current. Found by CI, not by the author's machine — it
+needed a fresh build competing for CPU to surface, and it failed roughly one run in ten.
+
 **`window.prompt` is banned in this canvas.** It blocks the page, cannot be styled, and the
 user rejected it outright after being interrupted by one on every node creation. There were
 four; all are now inline inputs (`LabelInput`). `grep -rn "window.prompt" packages/web/src`
