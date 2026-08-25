@@ -1,0 +1,30 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # `playwright-core` ships no browser. `--with-deps` pulls the system libraries the
+      # shell needs, which a bare runner does not have.
+      - name: Install the headless shell
+        run: npx playwright install --with-deps chromium --only-shell
+
+      # core + server + the browser suite. The e2e layer is where every silent bug in this
+      # project has lived, so a run that skipped it would prove very little.
+      - run: npm test
