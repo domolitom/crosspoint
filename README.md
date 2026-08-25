@@ -53,9 +53,11 @@ Then, in any project you want diagrams for:
 node /path/to/crosspoint/bin/crosspoint.js        # canvas + API on :4000
 ```
 
-Diagrams land in `.crosspoint/`, which creates its own `.gitignore` so it stays out of your
-repo. Pass a directory to put them elsewhere. To let an agent edit the same graph, register
-the MCP server once with an absolute path:
+Diagrams land in `.crosspoint/`. When Crosspoint creates that folder it writes a `.gitignore`
+containing `*`, so it stays out of your repo without touching a file it doesn't own — a
+folder that already existed is left alone, and is yours to ignore. Pass a directory to put
+diagrams elsewhere. To let an agent edit the same graph, register the MCP server once with an
+absolute path:
 
 ```bash
 claude mcp add crosspoint -s user \
@@ -79,8 +81,11 @@ docker run --rm -p 4000:4000 -v "$PWD/.crosspoint:/diagrams" ghcr.io/domolitom/c
 Or build it yourself with `docker build -t crosspoint .`.
 
 The volume is not optional — diagrams live in `/diagrams`, and without it your work dies with
-the container. The image runs as uid 1000, so on Linux a bind mount needs to be writable by
-that uid (`chown 1000:1000 .crosspoint`); Docker Desktop handles this for you.
+the container. Two things the bind mount implies: the directory has to exist before you
+mount it, so it will not self-ignore and you should add `.crosspoint/` to your own
+`.gitignore`; and the image runs as uid 1000, so on Linux the directory must be writable by
+that uid (`chown 1000:1000 .crosspoint`) or the server dies on startup. Docker Desktop maps
+this for you, which is exactly why it is easy to miss until CI runs.
 
 The image serves the canvas and API only. The MCP server is stdio and has to run beside your
 agent, so register it on the host as above and point it at `http://localhost:4000`.
