@@ -256,7 +256,7 @@ export async function dragMouse(
   page: Page,
   from: { x: number; y: number },
   to: { x: number; y: number },
-  modifier?: 'Shift' | 'Meta',
+  modifier?: 'Shift' | 'ControlOrMeta',
 ) {
   if (modifier) await page.keyboard.down(modifier);
   await page.mouse.move(from.x, from.y);

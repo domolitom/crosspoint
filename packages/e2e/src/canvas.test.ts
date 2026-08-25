@@ -967,7 +967,9 @@ test('one swatch click colours a mixed node and edge selection', async () => {
     await stack.page.locator('.react-flow__node[data-id="mixed-src"]').click();
     await stack.page
       .locator(`.react-flow__edge[data-id="${edge}"] .react-flow__edge-path`)
-      .click({ modifiers: ['Meta'], force: true });
+      // React Flow's multi-selection key is Meta on macOS and Control everywhere else, so a
+      // hardcoded Meta selects nothing on Linux and the wait below can never come true.
+      .click({ modifiers: ['ControlOrMeta'], force: true });
     const n = await stack.page.locator('.react-flow__node.selected').count();
     const e = await stack.page.locator('.react-flow__edge.selected').count();
     return n === 1 && e === 1;
