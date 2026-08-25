@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.crosspoint
+diagrams
+*.ops.jsonl
+*.state.json
+graph.json
+/*.json
+!/package.json
+!/package-lock.json
+!/tsconfig.json
+*.log
+.DS_Store
