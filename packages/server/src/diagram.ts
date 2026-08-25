@@ -28,6 +28,14 @@ export class DiagramFile {
   private persistTimer?: NodeJS.Timeout;
   /** When the oldest unwritten change arrived, so the debounce cannot starve the write. */
   private pendingSince: number | null = null;
+  /**
+   * Serialises writes, so two `persistNow` calls cannot overlap on one temp path and let
+   * the older rename land last. Belt and braces alongside the rev check in `reload`: that
+   * one keeps a stale read from being adopted, this one stops it being published at all.
+   */
+  private writing: Promise<void> = Promise.resolve();
+  /** Makes each temp path unique, so concurrent writers cannot clobber one another. */
+  private writeSeq = 0;
 
   constructor(
     readonly name: string,
@@ -85,6 +93,18 @@ export class DiagramFile {
 
     try {
       const incoming = normalize(parse(text));
+      /*
+       * Our own write, arriving late.
+       *
+       * `persistNow` records `lastWritten` before the rename lands, so until it does the
+       * file still holds the *previous* text — ours, but no longer what `lastWritten`
+       * compares against. A watcher event in that window used to read it as somebody
+       * else's edit, revert the diagram to the older content and push a phantom step onto
+       * undo. Rev is monotonic per workspace and the file carries the one it was written
+       * at, so anything older than what is already in memory can only be that echo. A
+       * genuine hand edit leaves the rev alone, so it still reads as current and adopts.
+       */
+      if (incoming.rev < this.graph.rev) return null;
       this.lastWritten = text;
       return incoming;
     } catch {
@@ -122,11 +142,22 @@ export class DiagramFile {
       this.persistTimer = undefined;
     }
     this.pendingSince = null;
+    // Queue behind any write already in flight rather than racing it. Serialising here also
+    // means the text is taken when the write runs, so a queued write persists the latest
+    // graph instead of a snapshot that was current when it was scheduled.
+    const done = this.writing.then(() => this.writeOnce());
+    // The chain must not stay poisoned by one failed write, or every later save is skipped.
+    // The caller still sees the rejection; only the queue is kept healthy.
+    this.writing = done.catch(() => {});
+    return done;
+  }
+
+  private async writeOnce(): Promise<void> {
     const text = serialize(this.graph);
     if (text === this.lastWritten) return;
     this.lastWritten = text;
     // Write-then-rename: a watcher must never observe a half-written file.
-    const tmp = `${this.path}.${process.pid}.tmp`;
+    const tmp = `${this.path}.${process.pid}.${this.writeSeq++}.tmp`;
     await writeFile(tmp, text, 'utf8');
     await rename(tmp, this.path);
   }
