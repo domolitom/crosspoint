@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,27 +25,64 @@ export const CANVAS = `http://localhost:${WEB_PORT}`;
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 
 /**
+ * Where Playwright caches the browsers it downloads.
+ *
+ * One directory per platform, and `PLAYWRIGHT_BROWSERS_PATH` overrides all of them — CI
+ * images often set it to keep the cache off the home directory.
+ */
+export function browserCache(): string {
+  const override = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (override) return override;
+
+  if (process.platform === 'darwin') return join(homedir(), 'Library', 'Caches', 'ms-playwright');
+  if (process.platform === 'win32') return join(homedir(), 'AppData', 'Local', 'ms-playwright');
+  return join(homedir(), '.cache', 'ms-playwright');
+}
+
+const isDir = (path: string): boolean => {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+/**
  * Find the cached headless shell Playwright downloads.
  *
  * `playwright-core` ships no browser of its own, so we borrow the one in the shared
  * cache. Failing with instructions beats failing with a stack trace from deep inside
  * the launcher.
+ *
+ * The binary sits one level down in a directory named for the platform and architecture —
+ * `chrome-headless-shell-mac-arm64`, `-linux64`, `-win64`. Searching for that prefix beats
+ * spelling out every name for the same file, which is how this came to be macOS-only and
+ * to fail on the first Linux contributor rather than on the author's machine.
  */
 export function resolveHeadlessShell(): string {
-  const cache = join(homedir(), 'Library/Caches/ms-playwright');
-  const candidates = existsSync(cache)
+  const cache = browserCache();
+  const exe = process.platform === 'win32' ? 'chrome-headless-shell.exe' : 'chrome-headless-shell';
+
+  const candidates = isDir(cache)
     ? readdirSync(cache)
         .filter((entry) => entry.startsWith('chromium_headless_shell'))
         .sort()
         .reverse()
-        .map((entry) => join(cache, entry, 'chrome-headless-shell-mac-arm64/chrome-headless-shell'))
+        .flatMap((entry) => {
+          const build = join(cache, entry);
+          return isDir(build)
+            ? readdirSync(build)
+                .filter((arch) => arch.startsWith('chrome-headless-shell-'))
+                .map((arch) => join(build, arch, exe))
+            : [];
+        })
         .filter((path) => existsSync(path))
     : [];
 
   if (candidates.length === 0) {
     throw new Error(
       'No cached Playwright headless shell found.\n' +
-        `Looked under ${cache}.\n` +
+        `Looked under ${cache} (platform: ${process.platform}).\n` +
         'Install one with:  npx playwright install chromium --only-shell',
     );
   }
