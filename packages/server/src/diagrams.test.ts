@@ -141,6 +141,14 @@ test('creating over a diagram file that exists does not destroy it', async () =>
 
   const after = JSON.parse(await readFile(path, 'utf8'));
   assert.deepEqual(after.nodes, original.nodes, 'the contents survived the attempt');
+
+  // Writing into the workspace means the watcher will adopt this file as a diagram, and
+  // that adoption is itself a feed entry. Wait for it and drain, or it lands mid-assertion
+  // in whichever later test happens to be reading the feed when it arrives.
+  await until('the hand-written file to be adopted', async () =>
+    (await api('/api/diagrams')).body.diagrams.some((d: any) => d.name === 'written-by-hand'),
+  );
+  await api('/api/changes?actor=all');
 });
 
 // Names become filenames, so this is the boundary that stops a diagram escaping the
