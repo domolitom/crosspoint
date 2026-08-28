@@ -14,8 +14,11 @@
     "packages/*"
   ],
   "scripts": {
+    "predev": "node scripts/preflight.js",
     "dev": "npm run build -w @crosspoint/core && CROSSPOINT_GRAPH=\"$PWD/graph.json\" concurrently -n server,web -c blue,green \"npm run dev -w @crosspoint/server\" \"npm run dev -w @crosspoint/web\"",
+    "prebuild": "node scripts/preflight.js",
     "build": "npm run build -w @crosspoint/core && npm run build -w @crosspoint/server && npm run build -w @crosspoint/mcp && npm run build -w @crosspoint/web",
+    "pretest": "node scripts/preflight.js",
     "test": "npm run build && npm run test -w @crosspoint/core && npm run test -w @crosspoint/server && npm run test -w @crosspoint/e2e",
     "typecheck": "tsc --build"
   },
