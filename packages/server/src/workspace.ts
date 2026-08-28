@@ -62,6 +62,16 @@ export function validateName(name: string): string {
 const isSidecar = (file: string) =>
   file.endsWith('.state.json') || file.endsWith('.ops.jsonl') || file.includes('.tmp');
 
+/** Whether a path is there at all. Any failure to stat is treated as absent. */
+const exists = async (path: string): Promise<boolean> => {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /**
  * How many steps back a diagram remembers.
  *
@@ -354,7 +364,18 @@ export class Workspace {
   async create(name: string): Promise<void> {
     validateName(name);
     if (this.diagrams.has(name)) throw new DiagramExistsError(name);
-    const diagram = new DiagramFile(name, join(this.dir, `${name}.json`), {
+
+    /*
+     * A diagram can exist on disk without being loaded here, and the check above only knows
+     * what is loaded. In file mode the diagram list comes from state, so a name missing from
+     * state still has a file — and creating over it wrote an empty graph straight on top,
+     * destroying the contents with no error and no way back but the op log. Ask the
+     * filesystem too, and refuse for the same reason: the diagram already exists.
+     */
+    const path = join(this.dir, `${name}.json`);
+    if (await exists(path)) throw new DiagramExistsError(name);
+
+    const diagram = new DiagramFile(name, path, {
       rev: this.revValue,
       nodes: [],
       edges: [],

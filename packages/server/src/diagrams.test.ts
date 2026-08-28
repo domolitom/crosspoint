@@ -118,6 +118,31 @@ test('creating the same name twice is refused', async () => {
   assert.match(body.error, /already exists/);
 });
 
+/*
+ * The one that destroyed real work.
+ *
+ * "Already exists" used to mean "is loaded in this workspace", which is not the same as
+ * "is on disk". A file the workspace had not loaded — routine in file mode, where the
+ * diagram list comes from state rather than a scan — was overwritten with an empty graph,
+ * silently and with a 200. Recovering it needed the op log.
+ */
+test('creating over a diagram file that exists does not destroy it', async () => {
+  const path = join(dir, 'written-by-hand.json');
+  const original = {
+    rev: 0,
+    nodes: [{ id: 'keep', position: { x: 15, y: 30 }, data: { label: 'Keep me' } }],
+    edges: [],
+  };
+  await writeFile(path, JSON.stringify(original, null, 2), 'utf8');
+
+  const { status, body } = await send('/api/diagrams', 'POST', { name: 'written-by-hand' });
+  assert.equal(status, 400, 'a file on disk counts as existing');
+  assert.match(body.error, /already exists/);
+
+  const after = JSON.parse(await readFile(path, 'utf8'));
+  assert.deepEqual(after.nodes, original.nodes, 'the contents survived the attempt');
+});
+
 // Names become filenames, so this is the boundary that stops a diagram escaping the
 // workspace directory entirely.
 test('names that could escape the directory are refused', async () => {
