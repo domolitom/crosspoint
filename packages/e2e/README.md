@@ -3,9 +3,29 @@
 Browser tests for the canvas.
 
 ```bash
-npm run test -w @crosspoint/e2e        # the whole suite
+npm run test -w @crosspoint/e2e        # the whole suite, ~22s
+node --test packages/e2e/dist/lens.test.js               # one slice, ~4s
 node --test --test-name-pattern "multi-node drag" packages/e2e/dist/canvas.test.js
 ```
+
+Six suites, split by concern so iterating costs seconds rather than the whole run:
+
+| file | covers |
+| --- | --- |
+| `canvas` | dragging, connecting, selecting and deleting; the diagram switcher |
+| `colour` | node and edge colour, and the swatches themselves |
+| `lens` | subcanvases, the panel, its trail and its geometry |
+| `editing` | inline text: creating, renaming, edge labels, label-driven sizing |
+| `resize` | pinning a node's size by hand |
+| `undo` | Cmd+Z and Cmd+Shift+Z |
+
+Each file boots its **own** stack — about 0.7s — so they must not run in parallel: they
+share ports 4477/5477. That is what `--test-concurrency=1` in the package's test script is
+for. It was already there for flakiness; it is now load-bearing for the ports too.
+
+Anything more than one suite needs lives in `harness.ts`. `fixtures(() => stack)` returns
+the shared `seed`, `freshDiagram`, `nodeById` and `awaitFocus`, bound through a getter
+because each suite assigns its stack inside `before`.
 
 Needs `npm run build` first — the suite runs the *built* server and drives vite, and the
 tests themselves compile to `dist` like every other package here.
@@ -52,11 +72,10 @@ through React Flow's zoom transform, so `fitView` on a wide graph reports a 120p
 instead starts a brand-new connection — a different gesture that will not reconnect
 anything.
 
-## The one thing not natively simulated
+## No synthetic events left
 
-HTML5 drag-and-drop cannot be driven by Playwright's mouse, because `dataTransfer` only
-exists on real drag events. The palette test dispatches `dragstart`/`dragover`/`drop`
-directly, sharing one `DataTransfer` so the payload set on dragstart is visible to the
-drop, exactly as a browser would present it. This exercises the app's own handlers and
-its screen-to-flow coordinate conversion. It does **not** exercise the browser's native
-drag gesture.
+HTML5 drag-and-drop cannot be driven by Playwright's mouse — `dataTransfer` only exists on
+real drag events — so the palette test that used to live here dispatched
+`dragstart`/`dragover`/`drop` by hand. The palette has since been replaced by
+double-click-to-create, which is real mouse input, so every interaction in this suite is
+now driven the way a human drives it.

@@ -14,7 +14,8 @@ npm test                         # core + server + the browser suite
 
 npm run test -w @crosspoint/core     # graph model: ops, placement, arrange, serialisation
 npm run test -w @crosspoint/server   # spawns a real server, ws client + HTTP agent
-npm run test -w @crosspoint/e2e      # real browser against a real stack (~13s)
+npm run test -w @crosspoint/e2e      # real browser against a real stack (~22s)
+node --test packages/e2e/dist/lens.test.js   # one e2e slice (~4s)
 node --test packages/core/dist/graph.test.js --test-name-pattern "placement"
 ```
 
@@ -52,7 +53,9 @@ Five workspaces under `packages/`:
 - **`web`** — Vite + React + `@xyflow/react` canvas on :5173, proxying `/api` and `/ws`.
 - **`mcp`** — stdio MCP server, a thin structural client of the HTTP API.
 - **`e2e`** — Playwright against a real stack on its own ports. The layer where every silent
-  bug in this project has lived.
+  bug in this project has lived. Six suites by concern — `canvas`, `colour`, `lens`,
+  `editing`, `resize`, `undo` — each booting its own stack, so they share ports and must
+  stay serial (`--test-concurrency=1`). Shared fixtures are in `harness.ts`.
 
 **The server owns state; files are persistence, not the live source of truth.** This was
 chosen over "everyone writes the file, a watcher fans changes out" specifically to avoid
