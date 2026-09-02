@@ -724,3 +724,66 @@ test('clearing a label leaves the colour alone', () => {
   g = applyOp(g, { op: 'update_edge', id: 'auth-service->database', label: '' });
   assert.equal(g.edges[0].color, 'red');
 });
+
+/*
+ * An op that changes nothing.
+ *
+ * The canvas snaps drags to the same 15px grid the model does, so a nudge inside one cell
+ * arrives as a `move_node` naming the position the node already has. `applyOp` returns the
+ * graph it was handed for those, which is what lets the server skip the rev, the log entry,
+ * the file write and the push. The reference check is the contract, so it is what these
+ * assert — a deep-equal graph with a fresh rev would pass a value comparison and still put
+ * a change nobody made into the feed.
+ */
+
+test('a sub-grid nudge is absorbed, not applied', () => {
+  const g = applyOp(build(), { op: 'move_node', id: 'database', position: { x: 600, y: 300 } });
+  // Inside one cell in both axes, so snapping lands back on 600,300.
+  const nudged = applyOp(g, { op: 'move_node', id: 'database', position: { x: 604, y: 297 } });
+  assert.equal(nudged, g, 'expected the same graph back, not a copy with a new rev');
+  assert.equal(nudged.rev, g.rev, 'and no rev, or the feed gains an entry for nothing');
+});
+
+test('moving a node to the position it already holds is absorbed', () => {
+  const g = applyOp(build(), { op: 'move_node', id: 'database', position: { x: 600, y: 300 } });
+  assert.equal(applyOp(g, { op: 'move_node', id: 'database', position: { x: 600, y: 300 } }), g);
+});
+
+test('resizing to the size already pinned is absorbed', () => {
+  const g = applyOp(build(), { op: 'resize_node', id: 'database', size: { w: 240, h: 135 } });
+  const same = applyOp(g, { op: 'resize_node', id: 'database', size: { w: 244, h: 133 } });
+  assert.equal(same, g, 'snapping lands on the size already stored');
+});
+
+// The other half of the guard: absorbing too eagerly would silently drop real edits, which
+// is a far worse failure than the noise it is fixing.
+test('a real move or resize is still applied', () => {
+  const g = applyOp(build(), { op: 'move_node', id: 'database', position: { x: 600, y: 300 } });
+
+  const moved = applyOp(g, { op: 'move_node', id: 'database', position: { x: 615, y: 300 } });
+  assert.notEqual(moved, g, 'one grid cell is a real move');
+  assert.equal(moved.rev, g.rev + 1);
+  assert.deepEqual(moved.nodes.find((n) => n.id === 'database')!.position, { x: 615, y: 300 });
+
+  const resized = applyOp(g, { op: 'resize_node', id: 'database', size: { w: 240, h: 135 } });
+  assert.notEqual(resized, g, 'acquiring a size is what pins the node — always a change');
+  assert.equal(resized.rev, g.rev + 1);
+});
+
+// A node with no size is *unpinned*, and pinning it is a change even when the box asked for
+// matches what it was already rendering at. Absorbing that would leave the node auto-sizing
+// off its label with no sign the resize failed.
+test('pinning a size on an auto-sized node is never absorbed', () => {
+  const g = build();
+  const node = g.nodes.find((n) => n.id === 'database')!;
+  const pinned = applyOp(g, { op: 'resize_node', id: 'database', size: nodeSize(node) });
+  assert.notEqual(pinned, g);
+  assert.ok(pinned.nodes.find((n) => n.id === 'database')!.size, 'the size is now stored');
+});
+
+test('a move naming an unknown node still throws rather than being absorbed', () => {
+  assert.throws(
+    () => applyOp(build(), { op: 'move_node', id: 'ghost', position: { x: 0, y: 0 } }),
+    GraphError,
+  );
+});

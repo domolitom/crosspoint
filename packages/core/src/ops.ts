@@ -115,6 +115,12 @@ export function normalize(graph: Graph): Graph {
  * Every op is narrow by construction: it names the one node or edge it touches and
  * leaves the rest of the document alone. That is what lets a human drag and an agent
  * restructure at the same time without either write clobbering the other.
+ *
+ * An op that asks for the state already held returns **the graph it was given** — same
+ * reference, same rev — so a caller can tell "applied" from "changed nothing" with `===`.
+ * Only the snapped layout ops can land there: the grid absorbs a sub-grid nudge or resize
+ * down to the value already stored, so the comparison is an exact one on two snapped
+ * values rather than a deep equality over the document.
  */
 export function applyOp(graph: Graph, op: GraphOp): Graph {
   const next = { ...graph, rev: graph.rev + 1 };
@@ -253,31 +259,39 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
     }
 
     case 'move_node': {
-      requireNode(graph, op.id, 'id');
+      const node = requireNode(graph, op.id, 'id');
+      const position = snapPosition(op.position);
+      // A nudge smaller than the grid snaps back to where the node already was, so this is
+      // the position it already holds. Nothing changed; say so.
+      if (node.position?.x === position.x && node.position?.y === position.y) return graph;
       return {
         ...next,
-        nodes: graph.nodes.map((n) =>
-          n.id === op.id ? { ...n, position: snapPosition(op.position) } : n,
-        ),
+        nodes: graph.nodes.map((n) => (n.id === op.id ? { ...n, position } : n)),
       };
     }
 
     case 'resize_node': {
-      requireNode(graph, op.id, 'id');
+      const node = requireNode(graph, op.id, 'id');
+      const size = snapSize(op.size);
+      // Same as a sub-grid nudge, by the other axis. Note an *unsized* node never lands
+      // here: acquiring a size is what pins it, and that is a real change however closely
+      // the box matches the estimate it replaces.
+      if (node.size?.w === size.w && node.size?.h === size.h) return graph;
       // Storing a size is what pins the node: from here on it keeps this box instead of
       // tracking its label, exactly as a stored position stops it being re-seeded.
       return {
         ...next,
-        nodes: graph.nodes.map((n) => (n.id === op.id ? { ...n, size: snapSize(op.size) } : n)),
+        nodes: graph.nodes.map((n) => (n.id === op.id ? { ...n, size } : n)),
       };
     }
   }
 }
 
-function requireNode(graph: Graph, id: string, field: string): void {
-  if (!graph.nodes.some((n) => n.id === id)) {
-    throw new GraphError(`No node with id "${id}" (${field})`);
-  }
+/** Returns the node so a caller can compare against what it already holds. */
+function requireNode(graph: Graph, id: string, field: string): GraphNode {
+  const node = graph.nodes.find((n) => n.id === id);
+  if (!node) throw new GraphError(`No node with id "${id}" (${field})`);
+  return node;
 }
 
 /**
