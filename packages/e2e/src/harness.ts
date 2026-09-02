@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
@@ -265,4 +266,86 @@ export async function dragMouse(
   await page.mouse.move(to.x, to.y, { steps: 8 });
   await page.mouse.up();
   if (modifier) await page.keyboard.up(modifier);
+}
+
+/**
+ * Fixtures bound to a stack, for suites that share one.
+ *
+ * Takes a *getter* rather than the stack: every suite assigns its stack inside `before`, so
+ * there is nothing to bind at the module scope where these get destructured.
+ *
+ * These live here rather than in one suite because more than one needs them, and a copy per
+ * file is how two subtly different `seed`s end up in the same repo.
+ */
+export function fixtures(getStack: () => Stack) {
+  /** Seed a node at a known position so assertions are deterministic. */
+  const seed = async (label: string, x: number, y: number): Promise<string> => {
+    const stack = getStack();
+    const { status } = await stack.op({ op: 'add_node_at', label, position: { x, y } });
+    assert.equal(status, 200, `seeding ${label} failed`);
+    const graph = await stack.graph();
+    const node = graph.nodes.find((n: any) => n.data.label === label);
+    assert.ok(node, `seeded node ${label} not found`);
+    return node.id;
+  };
+
+  /**
+   * Create a diagram, switch the canvas to it, and return a seeder scoped to it.
+   *
+   * Tests that click on things need their own diagram. A suite accumulates nodes, and
+   * `fitView` then zooms so far out that a node click lands on empty canvas — which fails
+   * as "the palette is disabled" or a silent timeout rather than anything resembling the
+   * real cause.
+   */
+  const freshDiagram = async (name: string) => {
+    const stack = getStack();
+    await fetch(`${API}/api/diagrams`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    await openCanvas(stack);
+    const switcher = stack.page.locator('.diagram-switcher');
+    await until(`${name} to be listed`, async () =>
+      (await switcher.locator(`option[value="${name}"]`).count()) > 0,
+    );
+    await switcher.selectOption(name);
+    await until(`${name} to be active`, async () => (await switcher.inputValue()) === name);
+    // The switch re-fits the view; clicking before it settles throws the click away.
+    await settleViewport(stack.page);
+    return async (label: string, x: number, y: number) => {
+      const { status } = await stack.op({ op: 'add_node_at', label, position: { x, y } }, name);
+      assert.equal(status, 200, `seeding ${label} failed`);
+      const g = await stack.graph(name);
+      const node = g.nodes.find((n: any) => n.data.label === label);
+      assert.ok(node, `seeded node ${label} not found`);
+      await until('the seeded node to render', async () =>
+        (await stack.page.locator(`.react-flow__node[data-id="${node.id}"]`).count()) > 0,
+      );
+      return node.id;
+    };
+  };
+
+  const nodeById = async (id: string) => {
+    const graph = await getStack().graph();
+    return graph.nodes.find((n: any) => n.id === id);
+  };
+
+  /**
+   * Wait for an inline field to actually hold focus.
+   *
+   * `LabelInput` focuses on the next frame to win a race against React Flow's own handler,
+   * so keystrokes sent the instant the field appears go to the document instead.
+   * `keyboard.type` is slow enough to mask this; a single `Meta+A` is not.
+   */
+  const awaitFocus = async (selector: string) => {
+    await until(`${selector} to hold focus`, () =>
+      getStack().page.evaluate(
+        (sel) => document.activeElement?.matches(sel) ?? false,
+        selector,
+      ),
+    );
+  };
+
+  return { seed, freshDiagram, nodeById, awaitFocus };
 }
