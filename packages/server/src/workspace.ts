@@ -290,9 +290,27 @@ export class Workspace {
       throw new StaleRevError(options.baseRev, graph.rev);
     }
     // applyOp throws on an invalid op, so nothing below runs for a rejected one — the log
-    // only ever contains changes that actually happened. The rev it computes is discarded
-    // in favour of the workspace counter.
-    const next = { ...applyOp(graph, op), rev: this.nextRev() };
+    // only ever contains changes that actually happened.
+    const applied = applyOp(graph, op);
+
+    /*
+     * An op that changed nothing gets no rev, no history step, no log entry, no file write
+     * and no push.
+     *
+     * `applyOp` returns the graph it was given when the state asked for is the state already
+     * held — a nudge inside one grid cell, which snapping absorbs back to the position the
+     * node was already at. Applying it anyway put an entry nobody caused into `get_changes`,
+     * rewrote the file, and left an undo step that visibly does nothing when used.
+     *
+     * Returning the unchanged graph rather than throwing is deliberate: the caller did
+     * nothing wrong, and a canvas that got a 400 for a small drag would be worse than the
+     * noise. It reads as success because it *is* success — the node is where it was asked
+     * to be.
+     */
+    if (applied === graph) return graph;
+
+    // The rev applyOp computed is discarded in favour of the workspace counter.
+    const next = { ...applied, rev: this.nextRev() };
     // Push before replacing: the step remembers the graph as it was, plus the op that moved
     // it on, so a later undo can say what it undid.
     this.remember(file.name, graph, op);

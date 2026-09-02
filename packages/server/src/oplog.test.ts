@@ -259,8 +259,11 @@ test('repositioning is left out of the feed unless asked for', async () => {
   await op({ op: 'add_node', label: 'Cache' });
   const base = (await api('/api/graph')).body.rev;
 
-  // What a human tidying up produces: one real change buried in moves.
-  await op({ op: 'move_node', id: 'fetch', position: { x: 300, y: 150 } });
+  // What a human tidying up produces: one real change buried in moves. Every position here
+  // has to differ from the one the node already holds — a move to where a node already is
+  // is absorbed and never reaches the log, so a coordinate reused from earlier in this file
+  // would quietly cost this test an entry.
+  await op({ op: 'move_node', id: 'fetch', position: { x: 300, y: 165 } });
   await op({ op: 'add_edge', source: 'fetch', target: 'cache' });
   await op({ op: 'move_node', id: 'cache', position: { x: 300, y: 300 } });
   await op({ op: 'move_node', id: 'fetch', position: { x: 315, y: 150 } });
@@ -291,6 +294,44 @@ test('consuming advances past repositioning even though it is not returned', asy
   const { body: after } = await api('/api/changes?actor=all');
   assert.deepEqual(after.entries, [], 'the moves were consumed, not left pending');
   assert.equal(after.watermark, after.rev, 'watermark caught up to the latest rev');
+});
+
+/*
+ * The canvas snaps drags to the same 15px grid the model does, so a nudge inside one cell
+ * asks for the position the node already has. That used to be applied regardless: a rev
+ * burnt, the file rewritten, a layout entry the feed then had to filter out again, and an
+ * undo step that visibly does nothing when it is used.
+ */
+test('a nudge inside one grid cell costs nothing at all', async () => {
+  await op({ op: 'move_node', id: 'fetch', position: { x: 300, y: 300 } });
+  // Drained, so any entry the nudge produces is the only thing a later read could return.
+  await api('/api/changes?actor=all');
+
+  const before = (await api('/api/graph')).body.rev;
+  const depth = (await api('/api/history')).body;
+  // Persistence is debounced, so the file has to catch up to the move above before it can
+  // be used as the "untouched" baseline — otherwise a late write lands mid-test and reads
+  // as the nudge having rewritten it.
+  const onDisk = await until(
+    'the file to catch up with the move',
+    async () => {
+      const file = await readGraphFile();
+      return file.rev === before ? file : null;
+    },
+  );
+
+  const nudged = await op({ op: 'move_node', id: 'fetch', position: { x: 307, y: 296 } });
+  assert.equal(nudged.status, 200, 'not an error — a small drag is an ordinary thing to do');
+  assert.equal(nudged.body.rev, before, 'and it costs no rev');
+  assert.equal((await api('/api/graph')).body.rev, before);
+
+  const feed = await api('/api/changes?since=' + before + '&include_layout=true&actor=all');
+  assert.deepEqual(feed.body.entries, [], 'nothing to report, not even as layout noise');
+  assert.deepEqual((await api('/api/history')).body, depth, 'no undo step that undoes nothing');
+
+  // Well past the debounce, so a write it triggered would have landed by now.
+  await new Promise((r) => setTimeout(r, 250));
+  assert.deepEqual(await readGraphFile(), onDisk, 'and the file is byte-for-byte untouched');
 });
 
 test('generating a whole diagram costs one rev and reaches disk laid out', async () => {
