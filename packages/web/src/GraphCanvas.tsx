@@ -275,16 +275,30 @@ function GraphCanvasInner({
     [emit],
   );
 
-  const onNodesDelete = useCallback(
-    (deleted: Node[]) => {
-      for (const node of deleted) emit({ op: 'delete_node', id: node.id });
-    },
-    [emit],
-  );
-
-  const onEdgesDelete = useCallback(
-    (deleted: Edge[]) => {
-      for (const edge of deleted) emit({ op: 'delete_edge', id: edge.id });
+  /*
+   * One handler for both, because the two lists have to be read together.
+   *
+   * `delete_node` cascades on the server — an edge to a deleted node would leave the graph
+   * dangling — so sending `delete_edge` for one of those edges is a second op for work
+   * already done, and the server 400s an edge it cannot find. Separate `onNodesDelete` and
+   * `onEdgesDelete` callbacks cannot see each other's list, so all they could do was rely
+   * on the edge op happening to land first. It did, which is why this looked fine; flip the
+   * order and every node deletion carrying an edge errors.
+   *
+   * React Flow's combined `onDelete` gives both lists at once, so the redundant op is
+   * simply never sent and the order stops mattering.
+   */
+  const onDelete = useCallback(
+    ({ nodes: removed, edges: cut }: { nodes: Node[]; edges: Edge[] }) => {
+      const going = new Set(removed.map((n) => n.id));
+      for (const edge of cut) {
+        // Only an edge deleted in its own right. One hanging off a deleted node is the
+        // cascade's business.
+        if (!going.has(edge.source) && !going.has(edge.target)) {
+          emit({ op: 'delete_edge', id: edge.id });
+        }
+      }
+      for (const node of removed) emit({ op: 'delete_node', id: node.id });
     },
     [emit],
   );
@@ -467,8 +481,7 @@ function GraphCanvasInner({
       // Defaults to Backspace alone, so Delete — what most full keyboards offer —
       // silently did nothing.
       deleteKeyCode={['Backspace', 'Delete']}
-      onNodesDelete={onNodesDelete}
-      onEdgesDelete={onEdgesDelete}
+      onDelete={onDelete}
       onNodeDoubleClick={onNodeDoubleClick}
       onEdgeDoubleClick={onEdgeDoubleClick}
       // Double-click creates a node, so it must not also zoom the canvas.

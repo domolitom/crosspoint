@@ -1702,3 +1702,49 @@ test('with a panel open, Cmd+Z steps the panel diagram and not the parent', asyn
     'the diagram behind the panel must be untouched',
   );
 });
+
+/*
+ * Deleting a node used to send `delete_edge` for the node's own edges as well as
+ * `delete_node`, and the server's cascade had already removed them. It worked only because
+ * React Flow happened to call the edge callback first — nothing enforced that, and reversed
+ * the second op names an edge that no longer exists and 400s.
+ *
+ * The observable proof is the feed: one op for one deletion. A canvas with no error surface
+ * would show nothing either way.
+ */
+test('deleting a node sends one op, not a delete_edge its cascade already did', async () => {
+  const seedIn = await freshDiagram('node-delete');
+  const src = await seedIn('Producer', 0, 0);
+  const dst = await seedIn('Consumer', 300, 0);
+
+  const edgeId = `${src}->${dst}`;
+  assert.equal(
+    (await stack.op({ op: 'add_edge', source: src, target: dst }, 'node-delete')).status,
+    200,
+  );
+  await until('the edge to render', async () =>
+    (await stack.page.locator(`.react-flow__edge[data-id="${edgeId}"]`).count()) > 0,
+  );
+
+  const before = await stack.graph('node-delete');
+  assert.equal(before.edges.length, 1, 'the fixture needs an edge for the cascade to remove');
+
+  const node = stack.page.locator(`.react-flow__node[data-id="${src}"]`);
+  await node.click();
+  await until('the node to report itself selected', async () =>
+    (await stack.page.locator(`.react-flow__node[data-id="${src}"].selected`).count()) > 0,
+  );
+  await stack.page.keyboard.press('Delete');
+
+  const after = await until('the node to be gone from the server', async () => {
+    const g = await stack.graph('node-delete');
+    return g.nodes.every((n: any) => n.id !== src) ? g : null;
+  });
+  assert.equal(after.edges.length, 0, 'the cascade took the edge with it');
+
+  // No actor filter: these came from the canvas over the websocket, so they are human, and
+  // the seeding ops above went over HTTP and sit before `since`.
+  const feed = await (await fetch(`${API}/api/changes?since=${before.rev}`)).json();
+  const ops = feed.entries.map((e: any) => e.op.op);
+  assert.deepEqual(ops, ['delete_node'], `expected one op, got ${ops.join(', ') || 'none'}`);
+});
