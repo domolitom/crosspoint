@@ -381,6 +381,27 @@ handler.** `document.elementFromPoint(x, y)` returning `nothing` means the coord
 outside the viewport, which is a positioning bug, not an event-wiring bug. The e2e resize
 helper asserts this and reports the viewport and panel geometry on failure; keep that.
 
+**`applyOp` returns the graph it was given when nothing changed, and `===` is the contract.**
+The canvas snaps drags to the same 15px grid the model does, so a nudge inside one cell asks
+for the position the node already holds. `Workspace.apply` compares by reference and skips the
+rev, the history step, the log entry, the write and the push — a deep-equal check would not do,
+since every other op returns a document that differs only by rev. Absorbing is deliberately
+*not* an error: the caller did nothing wrong and the node is where it asked for it to be.
+
+Two consequences. Only the snapped layout ops can be absorbed, so the comparison stays exact
+rather than a deep equality over the whole graph. And **a test that moves a node to where it
+already is now logs nothing** — one already existed in `oplog.test.ts`, reusing a coordinate
+from earlier in the file, and it lost an entry the moment this landed. Pick fixture
+coordinates that differ from the current position.
+
+**Deleting a node must not also send `delete_edge` for that node's own edges.** The server
+cascades them, so the second op names an edge that no longer exists. Separate
+`onNodesDelete`/`onEdgesDelete` callbacks cannot see each other's list, so the best they could
+do was rely on React Flow calling the edge one first — which it does, which is why this looked
+fine for a long time. React Flow's combined `onDelete` hands over both lists at once, so the
+redundant op is never sent and the order stops mattering. The e2e guard asserts one op reaches
+the feed, because a canvas with no error surface shows nothing either way.
+
 ## Built since the reframing
 
 Check the code, not this list, for what exists — but these are done and covered by tests:
@@ -430,10 +451,5 @@ Agreed in principle, deliberately not acted on yet:
 
 ## Known gaps
 
-Neither loses data; both were found by audit rather than by failure.
-
-- A sub-grid nudge sends a no-op `move_node` — the position the node already had, because
-  snapping absorbs it. The server applies unconditionally, bumping rev and rewriting the file.
-- Deleting a node sends `delete_edge` then `delete_node`, but the server's cascade would have
-  removed that edge anyway. It works only because the ordering happens to favour it; flipped,
-  those ops would 400.
+None outstanding. The two that stood here — a no-op `move_node` from a sub-grid nudge, and a
+redundant `delete_edge` alongside `delete_node` — are fixed, and both left a trap above.
