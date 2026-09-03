@@ -174,7 +174,7 @@ export const Demo: React.FC = () => (
                 letterSpacing: -1.6,
               }}
             >
-              The picture is how you talk to the agent.
+              The diagram is how you talk to the agent.
             </div>
           </Rise>
           <Rise delay={22} distance={14}>
