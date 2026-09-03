@@ -1,0 +1,26 @@
+{
+  "name": "crosspoint-demo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Not a workspace on purpose: nobody building Crosspoint should have to pull Remotion.",
+  "scripts": {
+    "capture": "tsx capture/record.ts",
+    "studio": "remotion studio",
+    "render": "remotion render Demo out/crosspoint.mp4",
+    "still": "remotion still Demo"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.520",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.520"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "@types/react": "^18.3.18",
+    "playwright-core": "^1.49.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "since": 11,
+  "entries": [
+    {
+      "kind": "structural",
+      "actor": "human",
+      "op": {
+        "op": "add_node_at",
+        "label": "Fraud check",
+        "position": {
+          "x": 585,
+          "y": 1020
+        }
+      }
+    },
+    {
+      "kind": "structural",
+      "actor": "human",
+      "op": {
+        "op": "update_node",
+        "id": "payments",
+        "color": "red"
+      }
+    }
+  ]
+}
