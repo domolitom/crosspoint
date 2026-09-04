@@ -1,10 +1,10 @@
 # Crosspoint
 
-https://github.com/user-attachments/assets/2c560147-7b1d-4586-80ca-d080e82f16ba
-
 <p align="center">
   <img src="assets/logo-512.png" alt="Crosspoint" width="220" />
 </p>
+
+https://github.com/user-attachments/assets/2c560147-7b1d-4586-80ca-d080e82f16ba
 
 A way to talk to an AI agent in pictures. You and the agent edit the same graph, so you are
 always looking at the same thing — instead of the agent reconstructing an approximation from
