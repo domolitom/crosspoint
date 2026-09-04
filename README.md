@@ -1,5 +1,7 @@
 # Crosspoint
 
+https://github.com/user-attachments/assets/2c560147-7b1d-4586-80ca-d080e82f16ba
+
 <p align="center">
   <img src="assets/logo-512.png" alt="Crosspoint" width="220" />
 </p>
