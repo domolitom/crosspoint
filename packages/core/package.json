@@ -1,6 +1,6 @@
 {
   "name": "@crosspoint/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "The Crosspoint graph model: types, ops, placement, arrange, diff-stable serialisation.",
   "homepage": "https://github.com/domolitom/crosspoint#readme",

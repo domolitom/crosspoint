@@ -246,6 +246,11 @@ its graph in `packages/server/` until the root script started passing an absolut
 looking for a canvas. The `files` list in the root `package.json` therefore names those two
 paths verbatim. It also has to exclude `*.test.*`, or the server's tests ship to every user.
 
+**`npm version -ws` does not update the range a dependent asks for.** Bumping every package
+to 0.2.0 left the root's `"@crosspoint/core": "^0.1.0"` untouched, and locally it kept working
+because npm links the workspace regardless. Published, it resolves nothing — the CLI installs
+and cannot start. Bump the range by hand every time, and pack-and-install to check.
+
 **A `files` entry beats `.gitignore`, which is why publishing a gitignored `dist` works.** It
 reads wrong every time. `npm pack --dry-run` is the only answer worth trusting; check it
 after touching `files`.
