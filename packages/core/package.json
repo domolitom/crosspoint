@@ -1,16 +1,39 @@
 {
   "name": "@crosspoint/core",
   "version": "0.1.0",
-  "private": true,
+  "license": "MIT",
+  "description": "The Crosspoint graph model: types, ops, placement, arrange, diff-stable serialisation.",
+  "homepage": "https://github.com/domolitom/crosspoint#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/domolitom/crosspoint.git",
+    "directory": "packages/core"
+  },
+  "bugs": "https://github.com/domolitom/crosspoint/issues",
+  "engines": {
+    "node": ">=22"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
+  "files": [
+    "dist",
+    "!dist/*.test.*"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test dist/*.test.js"
+    "test": "npm run build && node --test dist/*.test.js",
+    "prepack": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "devDependencies": {
     "@types/node": "^22.10.7",
