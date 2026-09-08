@@ -1,11 +1,13 @@
 name: publish
 
 on:
-  push:
-    tags: ['v*']
   # Packaging breaks silently — a `files` list that misses a build output publishes an
-  # installable package that cannot start. Packing on every PR proves the tarballs are
-  # whole without publishing anything.
+  # installable package that cannot start. Every run packs and installs the tarballs; only
+  # a tag run publishes them. Work lands on master directly here, so a PR-only check would
+  # mostly never run.
+  push:
+    branches: [master]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
