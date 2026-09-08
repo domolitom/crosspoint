@@ -1,10 +1,7 @@
 name: publish
 
 on:
-  # Packaging breaks silently — a `files` list that misses a build output publishes an
-  # installable package that cannot start. Every run packs and installs the tarballs; only
-  # a tag run publishes them. Work lands on master directly here, so a PR-only check would
-  # mostly never run.
+  # Every run packs and installs the tarballs; only a tag run publishes them.
   push:
     branches: [master]
     tags: ['v*']
@@ -16,10 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Provenance is signed against the workflow identity, so publishing needs a token
-      # the job can mint. Without this, `provenance: true` in publishConfig fails the
-      # publish rather than quietly skipping it.
-      id-token: write
+      id-token: write   # provenance is signed against the workflow identity
 
     steps:
       - uses: actions/checkout@v4
@@ -32,8 +26,6 @@ jobs:
 
       - run: npm ci
 
-      # The tag is the version. A mismatch would publish 0.1.0 from a v0.2.0 tag and the
-      # image tags would then disagree with the package — cheaper to fail here.
       - name: Check the tag matches the version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -45,9 +37,8 @@ jobs:
             }
           done
 
-      # Pack before publishing and install the result, because `npm publish` succeeding
-      # says nothing about whether the tarball runs. The `prepack` hooks build, so this is
-      # also the build step. Correctness is `test.yml`'s job — it runs on the same tags.
+      # `npm publish` succeeding says nothing about whether the tarball runs. Tests are
+      # test.yml's job; this proves the packages install and start.
       - name: Pack and install the tarballs
         run: |
           mkdir -p /tmp/pub
@@ -62,8 +53,6 @@ jobs:
             /tmp/pub/crosspoint-mcp-*.tgz \
             /tmp/pub/crosspoint-0.*.tgz
 
-      # A published CLI that cannot serve its own canvas is the failure worth catching, and
-      # the canvas has no error surface, so building is not evidence.
       - name: Smoke test the installed CLI
         run: |
           cd /tmp/consumer
@@ -84,8 +73,6 @@ jobs:
           sleep 2
           grep -q Smoke .crosspoint/graph.json
 
-      # The MCP server is stdio, so the check is a handshake: it has to answer initialize
-      # and list its tools. It needs no Crosspoint server to do that.
       - name: Smoke test the installed MCP server
         run: |
           cd /tmp/consumer
@@ -94,8 +81,7 @@ jobs:
             '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
             | node_modules/.bin/crosspoint-mcp | grep -q '"name":"get_graph"'
 
-      # Order matters: the CLI depends on core, so core has to exist on the registry first
-      # or the install a user runs a minute later cannot resolve it.
+      # Core first: the CLI depends on it and a user installs a minute later.
       - name: Publish
         if: startsWith(github.ref, 'refs/tags/v')
         run: |

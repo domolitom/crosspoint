@@ -38,9 +38,8 @@ const missing = [
 ].filter(([path]) => !existsSync(path));
 
 if (missing.length > 0) {
-  // The published package ships both builds, so a gap there is a broken install rather
-  // than a missing step — and telling someone to `npm run build` inside node_modules sends
-  // them somewhere they should not be editing.
+  // The published package ships both builds, so a gap there is a broken install, not a
+  // missing step — and nobody should be told to build inside node_modules.
   const installed = root.includes(`${sep}node_modules${sep}`);
   const fix = installed
     ? `This install is incomplete. Reinstall it:\n\n  npm i -g crosspoint@latest\n`

@@ -119,14 +119,7 @@ test('--help explains itself without starting a server', async () => {
   assert.match(out, /\.crosspoint/);
 });
 
-/**
- * A missing build means two different things, and the advice cannot be the same.
- *
- * From a clone it is a skipped step. From an npm install it is a broken package — and
- * telling someone to run a build inside `node_modules` points them at a directory they
- * should not be editing. Both cases are reached by copying the script somewhere the
- * sibling `dist` directories it looks for do not exist.
- */
+/** Run a copy of the bin somewhere its sibling builds do not exist. */
 async function runDetached(dir: string) {
   await mkdir(dir, { recursive: true });
   const copy = join(dir, 'crosspoint.js');
