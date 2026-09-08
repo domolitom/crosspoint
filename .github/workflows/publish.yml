@@ -1,0 +1,104 @@
+name: publish
+
+on:
+  push:
+    tags: ['v*']
+  # Packaging breaks silently — a `files` list that misses a build output publishes an
+  # installable package that cannot start. Packing on every PR proves the tarballs are
+  # whole without publishing anything.
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Provenance is signed against the workflow identity, so publishing needs a token
+      # the job can mint. Without this, `provenance: true` in publishConfig fails the
+      # publish rather than quietly skipping it.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      # The tag is the version. A mismatch would publish 0.1.0 from a v0.2.0 tag and the
+      # image tags would then disagree with the package — cheaper to fail here.
+      - name: Check the tag matches the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          for pkg in . packages/core packages/mcp; do
+            have=$(node -p "require('./$pkg/package.json').version")
+            [ "$have" = "$tag" ] || {
+              echo "$pkg is $have, tag is $tag"; exit 1;
+            }
+          done
+
+      # Pack before publishing and install the result, because `npm publish` succeeding
+      # says nothing about whether the tarball runs. The `prepack` hooks build, so this is
+      # also the build step. Correctness is `test.yml`'s job — it runs on the same tags.
+      - name: Pack and install the tarballs
+        run: |
+          mkdir -p /tmp/pub
+          npm pack --pack-destination /tmp/pub -w @crosspoint/core
+          npm pack --pack-destination /tmp/pub -w @crosspoint/mcp
+          npm pack --pack-destination /tmp/pub
+
+          mkdir -p /tmp/consumer && cd /tmp/consumer
+          npm init -y >/dev/null
+          npm i --no-audit --no-fund \
+            /tmp/pub/crosspoint-core-*.tgz \
+            /tmp/pub/crosspoint-mcp-*.tgz \
+            /tmp/pub/crosspoint-0.*.tgz
+
+      # A published CLI that cannot serve its own canvas is the failure worth catching, and
+      # the canvas has no error surface, so building is not evidence.
+      - name: Smoke test the installed CLI
+        run: |
+          cd /tmp/consumer
+          mkdir -p project && cd project
+          CROSSPOINT_PORT=4400 ../node_modules/.bin/crosspoint > /tmp/cli.log 2>&1 &
+
+          trap 'echo "--- cli log ---"; cat /tmp/cli.log || true' EXIT
+
+          for i in $(seq 30); do
+            curl -sf http://localhost:4400/api/graph >/dev/null && break
+            sleep 1
+          done
+
+          curl -sf http://localhost:4400/ | grep -q '<div id="root"'
+          curl -s -X POST http://localhost:4400/api/op \
+            -H 'Content-Type: application/json' \
+            -d '{"op":{"op":"add_node","label":"Smoke"}}' >/dev/null
+          sleep 2
+          grep -q Smoke .crosspoint/graph.json
+
+      # The MCP server is stdio, so the check is a handshake: it has to answer initialize
+      # and list its tools. It needs no Crosspoint server to do that.
+      - name: Smoke test the installed MCP server
+        run: |
+          cd /tmp/consumer
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            | node_modules/.bin/crosspoint-mcp | grep -q '"name":"get_graph"'
+
+      # Order matters: the CLI depends on core, so core has to exist on the registry first
+      # or the install a user runs a minute later cannot resolve it.
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          npm publish -w @crosspoint/core
+          npm publish -w @crosspoint/mcp
+          npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
