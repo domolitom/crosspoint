@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
@@ -117,4 +117,43 @@ test('--help explains itself without starting a server', async () => {
   });
   assert.match(out, /Usage: crosspoint/);
   assert.match(out, /\.crosspoint/);
+});
+
+/**
+ * A missing build means two different things, and the advice cannot be the same.
+ *
+ * From a clone it is a skipped step. From an npm install it is a broken package — and
+ * telling someone to run a build inside `node_modules` points them at a directory they
+ * should not be editing. Both cases are reached by copying the script somewhere the
+ * sibling `dist` directories it looks for do not exist.
+ */
+async function runDetached(dir: string) {
+  await mkdir(dir, { recursive: true });
+  const copy = join(dir, 'crosspoint.js');
+  await copyFile(bin, copy);
+
+  return await new Promise<{ code: number | null; err: string }>((done) => {
+    const child = spawn(process.execPath, [copy], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = '';
+    child.stderr.on('data', (d) => (err += d));
+    child.on('close', (code) => done({ code, err }));
+  });
+}
+
+test('an unbuilt clone is told to build', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'crosspoint-unbuilt-'));
+  const { code, err } = await runDetached(join(root, 'bin'));
+
+  assert.equal(code, 1);
+  assert.match(err, /has not been built|have not been built/);
+  assert.match(err, /npm install && npm run build/);
+});
+
+test('an incomplete install is told to reinstall, not to build', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'crosspoint-installed-'));
+  const { code, err } = await runDetached(join(root, 'node_modules', 'crosspoint', 'bin'));
+
+  assert.equal(code, 1);
+  assert.match(err, /install is incomplete/);
+  assert.doesNotMatch(err, /npm run build/);
 });

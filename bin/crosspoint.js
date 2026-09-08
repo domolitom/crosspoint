@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
@@ -38,10 +38,17 @@ const missing = [
 ].filter(([path]) => !existsSync(path));
 
 if (missing.length > 0) {
+  // The published package ships both builds, so a gap there is a broken install rather
+  // than a missing step — and telling someone to `npm run build` inside node_modules sends
+  // them somewhere they should not be editing.
+  const installed = root.includes(`${sep}node_modules${sep}`);
+  const fix = installed
+    ? `This install is incomplete. Reinstall it:\n\n  npm i -g crosspoint@latest\n`
+    : `Run this once, in ${root}:\n\n  npm install && npm run build\n`;
+
   console.error(
     `crosspoint: ${missing.map(([, what]) => what).join(' and ')} ` +
-      `${missing.length > 1 ? 'have' : 'has'} not been built.\n\n` +
-      `Run this once, in ${root}:\n\n  npm install && npm run build\n`,
+      `${missing.length > 1 ? 'have' : 'has'} not been built.\n\n${fix}`,
   );
   process.exit(1);
 }
