@@ -27,6 +27,14 @@ The server takes a **diagrams directory** as `argv[2]` or `CROSSPOINT_DIAGRAMS`;
 after the file" — that is how `npm run dev` keeps an existing `graph.json` live. `.mcp.json` wires the MCP server up for Claude Code — it needs
 `npm run build` to have run, and the main server to be up.
 
+### Publishing
+
+Three packages go to npm: `@crosspoint/core`, `@crosspoint/mcp`, and `crosspoint` — the root,
+which ships `bin/` plus the built server and canvas. `server`, `web` and `e2e` stay private and
+travel inside the CLI package. `.github/workflows/publish.yml` does it on a `v*` tag, in that
+order, because the CLI depends on core and a user installing a minute later has to be able to
+resolve it. The three versions must match the tag; CI checks. Never publish by hand.
+
 `graph.json`, `diagrams/`, `*.ops.jsonl` and `*.state.json` are gitignored on purpose. They
 are live documents the server rewrites on every edit; tracking them turns ordinary use into a
 dirty working tree. Never `git add` them, and never `git add -A` in this repo.
@@ -230,6 +238,22 @@ actually changed — a bottom-right drag stays one op.
 
 **Workspace scripts run with the package as cwd.** `npm run dev -w @crosspoint/server` created
 its graph in `packages/server/` until the root script started passing an absolute path.
+
+**The published tarball keeps the monorepo paths, and that is load-bearing.**
+`bin/crosspoint.js` resolves `packages/server/dist/index.js` relative to the package root, and
+`static.ts` resolves `../../web/dist/` relative to itself. Flattening either into a plain
+`dist/` at publish time breaks both, silently — the tarball installs and the command dies
+looking for a canvas. The `files` list in the root `package.json` therefore names those two
+paths verbatim. It also has to exclude `*.test.*`, or the server's tests ship to every user.
+
+**A `files` entry beats `.gitignore`, which is why publishing a gitignored `dist` works.** It
+reads wrong every time. `npm pack --dry-run` is the only answer worth trusting; check it
+after touching `files`.
+
+**`*/` inside a comment closes it, even in a path.** Writing `` `packages/*/dist` `` in a
+JSDoc block ended the comment at the `*`, and the rest of the line became code — a stray
+backtick then reported as `TS1160: Unterminated template literal` 30 lines below, at EOF. Say
+"the sibling `dist` directories" instead.
 
 **Never write non-UTF8 bytes into source.** Two literal NUL bytes used as a separator in a
 template literal worked fine at runtime but made git classify the file as *binary* — diffs
