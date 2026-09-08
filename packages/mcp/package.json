@@ -1,14 +1,41 @@
 {
   "name": "@crosspoint/mcp",
   "version": "0.1.0",
-  "private": true,
+  "license": "MIT",
+  "description": "MCP server for Crosspoint — lets an agent read and edit a diagram it cannot move.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "diagram",
+    "graph",
+    "agent",
+    "claude"
+  ],
+  "homepage": "https://github.com/domolitom/crosspoint#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/domolitom/crosspoint.git",
+    "directory": "packages/mcp"
+  },
+  "bugs": "https://github.com/domolitom/crosspoint/issues",
+  "engines": {
+    "node": ">=22"
+  },
   "type": "module",
   "bin": {
     "crosspoint-mcp": "./dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "prepack": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.13.0",
