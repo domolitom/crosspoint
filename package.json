@@ -1,8 +1,22 @@
 {
   "name": "crosspoint",
-  "private": true,
   "version": "0.1.0",
   "license": "MIT",
+  "description": "A diagram an agent and a human can both edit — a typed graph whose layout the human owns and the agent cannot express.",
+  "keywords": [
+    "diagram",
+    "graph",
+    "mcp",
+    "agent",
+    "canvas",
+    "claude"
+  ],
+  "homepage": "https://github.com/domolitom/crosspoint#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/domolitom/crosspoint.git"
+  },
+  "bugs": "https://github.com/domolitom/crosspoint/issues",
   "engines": {
     "node": ">=22"
   },
@@ -13,6 +27,12 @@
   "workspaces": [
     "packages/*"
   ],
+  "files": [
+    "bin",
+    "packages/server/dist",
+    "!packages/server/dist/*.test.*",
+    "packages/web/dist"
+  ],
   "scripts": {
     "predev": "node scripts/preflight.js",
     "dev": "npm run build -w @crosspoint/core && CROSSPOINT_GRAPH=\"$PWD/graph.json\" concurrently -n server,web -c blue,green \"npm run dev -w @crosspoint/server\" \"npm run dev -w @crosspoint/web\"",
@@ -20,10 +40,18 @@
     "build": "npm run build -w @crosspoint/core && npm run build -w @crosspoint/server && npm run build -w @crosspoint/mcp && npm run build -w @crosspoint/web",
     "pretest": "node scripts/preflight.js",
     "test": "npm run build && npm run test -w @crosspoint/core && npm run test -w @crosspoint/server && npm run test -w @crosspoint/e2e",
-    "typecheck": "tsc --build"
+    "typecheck": "tsc --build",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@crosspoint/core": "^0.1.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
     "typescript": "^5.7.3"
+  },
+  "publishConfig": {
+    "provenance": true
   }
 }
