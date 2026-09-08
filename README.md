@@ -60,33 +60,24 @@ deleting a linked node orphans its subcanvas rather than destroying it.
 
 ## Quick start
 
-Needs Node 22+.
+Needs Node 22+. In any project you want diagrams for:
 
 ```bash
-npm install && npm run build
-```
-
-Then, in any project you want diagrams for:
-
-```bash
-node /path/to/crosspoint/bin/crosspoint.js        # canvas + API on :4000
+npx crosspoint                                    # canvas + API on :4000
 ```
 
 Diagrams land in `.crosspoint/`. When Crosspoint creates that folder it writes a `.gitignore`
 containing `*`, so it stays out of your repo without touching a file it doesn't own — a
 folder that already existed is left alone, and is yours to ignore. Pass a directory to put
-diagrams elsewhere. To let an agent edit the same graph, register the MCP server once with an
-absolute path:
+diagrams elsewhere. To let an agent edit the same graph, register the MCP server once:
 
 ```bash
-claude mcp add crosspoint -s user \
-  -e CROSSPOINT_SERVER=http://localhost:4000 \
-  -- node /path/to/crosspoint/packages/mcp/dist/index.js
+claude mcp add crosspoint -s user -- npx -y @crosspoint/mcp
 ```
 
 The MCP server is a thin client of the HTTP API, so **the Crosspoint server must be running**
-or every tool call fails. After rebuilding `mcp`, reconnect the client (`/mcp` in Claude Code)
-or you keep talking to the old tool schema.
+or every tool call fails. It defaults to `http://localhost:4000`; set `CROSSPOINT_SERVER` if
+you moved it.
 
 ### Docker
 
@@ -124,10 +115,17 @@ agent, so register it on the host as above and point it at `http://localhost:400
 
 ### Development
 
+From a clone:
+
 ```bash
+npm install && npm run build
 npm run dev     # vite on :5173 with hot reload, server on :4000
 npm test        # core + server + a real browser
 ```
+
+To point an agent at the checkout rather than the published package, register the built entry
+directly — `-- node /path/to/crosspoint/packages/mcp/dist/index.js`. After rebuilding `mcp`,
+reconnect the client (`/mcp` in Claude Code) or you keep talking to the old tool schema.
 
 ## The agent surface
 
