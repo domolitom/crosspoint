@@ -24,6 +24,9 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
+      # Node 22 ships npm 10, and trusted publishing needs 11.5.1+.
+      - run: npm install -g npm@latest
+
       - run: npm ci
 
       - name: Check the tag matches the version
@@ -81,12 +84,11 @@ jobs:
             '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
             | node_modules/.bin/crosspoint-mcp | grep -q '"name":"get_graph"'
 
-      # Core first: the CLI depends on it and a user installs a minute later.
+      # No token: npm authenticates the workflow's OIDC identity against the trusted
+      # publisher configured on each package. Core first, since the CLI depends on it.
       - name: Publish
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           npm publish -w @crosspoint/core
           npm publish -w @crosspoint/mcp
           npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
