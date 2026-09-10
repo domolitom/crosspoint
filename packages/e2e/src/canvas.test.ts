@@ -398,6 +398,35 @@ async function pathStart(edgeId: string) {
   return { x: Number(m[1]), y: Number(m[2]) };
 }
 
+/** Where it ends — the last coordinate pair of the cubic. */
+async function pathEnd(edgeId: string) {
+  const d = await stack.page.getAttribute(`.react-flow__edge[data-id="${edgeId}"] path.react-flow__edge-path`, 'd');
+  const m = /([-\d.]+),([-\d.]+)\s*$/.exec(d ?? '');
+  assert.ok(m, `could not read the path of ${edgeId}: ${d}`);
+  return { x: Number(m[1]), y: Number(m[2]) };
+}
+
+/** The four connection points of a node, in flow coordinates. */
+function points(box: { x: number; y: number; w: number; h: number }) {
+  return {
+    top: { x: box.x + box.w / 2, y: box.y },
+    right: { x: box.x + box.w, y: box.y + box.h / 2 },
+    bottom: { x: box.x + box.w / 2, y: box.y + box.h },
+    left: { x: box.x, y: box.y + box.h / 2 },
+  };
+}
+
+function assertOnPoint(
+  actual: { x: number; y: number },
+  expected: { x: number; y: number },
+  what: string,
+) {
+  assert.ok(
+    Math.abs(actual.x - expected.x) < 1 && Math.abs(actual.y - expected.y) < 1,
+    `${what}: expected the connection point at (${expected.x}, ${expected.y}), got (${actual.x}, ${actual.y})`,
+  );
+}
+
 /*
  * The side an edge uses is computed, never stored — so it has to follow the arrangement.
  * A neighbour to the right must be reached across the right face, not looped from the
@@ -413,17 +442,70 @@ test('an edge leaves through the face pointing at the other node', async () => {
     (await stack.page.locator(`.react-flow__edge[data-id="${a}->${b}"]`).count()) > 0,
   );
 
-  const box = await flowRect(a);
-  const start = await pathStart(`${a}->${b}`);
+  assertOnPoint(await pathStart(`${a}->${b}`), points(await flowRect(a)).right, 'source end');
+  assertOnPoint(await pathEnd(`${a}->${b}`), points(await flowRect(b)).left, 'target end');
+});
 
-  assert.ok(
-    Math.abs(start.x - (box.x + box.w)) < 2,
-    `expected the right face at x=${box.x + box.w}, got ${start.x}`,
+/*
+ * Where #15 actually showed itself. Separating a reciprocal pair by shifting its ends walked
+ * them off the face and onto the corners, and the pair still has to be two readable lines —
+ * so assert both: each end exactly on its point, and the two paths not identical.
+ */
+test('a reciprocal pair stays on the points and still reads as two lines', async () => {
+  const seedIn = await freshDiagram('reciprocal');
+  const a = await seedIn('Recip A', 0, 0);
+  const b = await seedIn('Recip B', 400, 0);
+  await stack.op({ op: 'add_edge', source: a, target: b, label: 'calls' }, 'reciprocal');
+  await stack.op({ op: 'add_edge', source: b, target: a, label: 'answers' }, 'reciprocal');
+
+  await until('both edges to render', async () =>
+    (await stack.page.locator('.react-flow__edge').count()) >= 2,
   );
-  assert.ok(
-    Math.abs(start.y - (box.y + box.h / 2)) < 2,
-    `expected the vertical middle at y=${box.y + box.h / 2}, got ${start.y}`,
+
+  const boxA = points(await flowRect(a));
+  const boxB = points(await flowRect(b));
+
+  assertOnPoint(await pathStart(`${a}->${b}`), boxA.right, 'forward source');
+  assertOnPoint(await pathEnd(`${a}->${b}`), boxB.left, 'forward target');
+  assertOnPoint(await pathStart(`${b}->${a}`), boxB.left, 'reverse source');
+  assertOnPoint(await pathEnd(`${b}->${a}`), boxA.right, 'reverse target');
+
+  const forward = await stack.page.getAttribute(
+    `.react-flow__edge[data-id="${a}->${b}"] path.react-flow__edge-path`, 'd');
+  const reverse = await stack.page.getAttribute(
+    `.react-flow__edge[data-id="${b}->${a}"] path.react-flow__edge-path`, 'd');
+  assert.notEqual(forward, reverse, 'the pair must not draw as one line');
+});
+
+/*
+ * No cap on how many edges meet a node, and no cap per point either — several arrows
+ * converging on one face is a normal shape for a hub and must not be quietly limited.
+ */
+test('many edges can meet the same node on the same point', async () => {
+  const seedIn = await freshDiagram('hub');
+  // Far enough left that the horizontal gap dominates for all three, so every edge really
+  // does choose the same face — otherwise this tests the face rule, not the crowding.
+  const hub = await seedIn('Hub', 900, 300);
+  const spokes = [
+    await seedIn('Spoke 1', 0, 240),
+    await seedIn('Spoke 2', 0, 300),
+    await seedIn('Spoke 3', 0, 360),
+  ];
+  for (const spoke of spokes) {
+    await stack.op({ op: 'add_edge', source: spoke, target: hub }, 'hub');
+  }
+
+  await until('every edge to render', async () =>
+    (await stack.page.locator('.react-flow__edge').count()) >= 3,
   );
+
+  const left = points(await flowRect(hub)).left;
+  for (const spoke of spokes) {
+    assertOnPoint(await pathEnd(`${spoke}->${hub}`), left, `edge from ${spoke}`);
+  }
+
+  const graph = await stack.graph('hub');
+  assert.equal(graph.edges.length, 3, 'all three edges exist on the server');
 });
 
 /*
