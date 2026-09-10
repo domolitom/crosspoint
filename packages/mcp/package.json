@@ -39,6 +39,7 @@
     "provenance": true
   },
   "dependencies": {
+    "crosspoint": "^0.2.0",
     "@modelcontextprotocol/sdk": "^1.13.0",
     "zod": "^3.24.1"
   },
