@@ -2,13 +2,10 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   Position,
-  useInternalNode,
   type Edge,
   type EdgeProps,
-  type InternalNode,
-  type Node as FlowNode,
 } from '@xyflow/react';
-import type { EdgeSide, NodeColor } from '@crosspoint/core';
+import type { NodeColor } from '@crosspoint/core';
 
 import { LabelInput } from './LabelInput';
 
@@ -26,14 +23,6 @@ export type DirectedEdgeData = {
    * labels. It bends the curve; the ends stay on their connection points.
    */
   offset?: number;
-  /**
-   * Pinned connection points. Absent means that end follows the arrangement.
-   *
-   * Recomputing a pinned end is the whole bug this exists to stop: the arrow jumped from
-   * one point to another as a box was dragged past a diagonal.
-   */
-  sourceSide?: EdgeSide;
-  targetSide?: EdgeSide;
   /** True while this edge's label is being edited in place. */
   editing?: boolean;
   /** Called with the new text. An empty string means "remove the label". */
@@ -41,53 +30,7 @@ export type DirectedEdgeData = {
   onLabelCancel?: () => void;
 };
 
-type Rect = { x: number; y: number; w: number; h: number };
 type Anchor = { x: number; y: number; position: Position };
-
-function rectOf(node: InternalNode<FlowNode> | undefined): Rect | null {
-  const w = node?.measured?.width;
-  const h = node?.measured?.height;
-  if (!node || !w || !h) return null;
-  const { x, y } = node.internals.positionAbsolute;
-  return { x, y, w, h };
-}
-
-/**
- * The point on `from` where a line to `to` leaves the box, snapped to the middle of a face.
- *
- * The comparison weights each delta by the *other* dimension rather than comparing them
- * raw: a 900px-wide pinned node is exited through its side long before the 45° line says
- * so, and using raw deltas puts the arrow on the top face of a box it is beside.
- */
-function anchorOf(from: Rect, to: Rect): Anchor {
-  const fx = from.x + from.w / 2;
-  const fy = from.y + from.h / 2;
-  const dx = to.x + to.w / 2 - fx;
-  const dy = to.y + to.h / 2 - fy;
-
-  if (Math.abs(dx) * from.h > Math.abs(dy) * from.w) {
-    return dx > 0
-      ? { x: from.x + from.w, y: fy, position: Position.Right }
-      : { x: from.x, y: fy, position: Position.Left };
-  }
-  return dy > 0
-    ? { x: fx, y: from.y + from.h, position: Position.Bottom }
-    : { x: fx, y: from.y, position: Position.Top };
-}
-
-/** The point in the middle of one named face. */
-function pointOn(rect: Rect, side: EdgeSide): Anchor {
-  switch (side) {
-    case 'top':
-      return { x: rect.x + rect.w / 2, y: rect.y, position: Position.Top };
-    case 'right':
-      return { x: rect.x + rect.w, y: rect.y + rect.h / 2, position: Position.Right };
-    case 'bottom':
-      return { x: rect.x + rect.w / 2, y: rect.y + rect.h, position: Position.Bottom };
-    case 'left':
-      return { x: rect.x, y: rect.y + rect.h / 2, position: Position.Left };
-  }
-}
 
 /** Which way is out of a face. Used to leave the box perpendicular to the side it starts on. */
 const OUTWARD: Record<Position, readonly [number, number]> = {
@@ -128,8 +71,6 @@ function curve(from: Anchor, to: Anchor, bow: number) {
 
 export function DirectedEdge({
   id,
-  source,
-  target,
   sourceX,
   sourceY,
   targetX,
@@ -143,27 +84,14 @@ export function DirectedEdge({
   data,
   selected,
 }: EdgeProps<Edge<DirectedEdgeData>>) {
-  const sourceRect = rectOf(useInternalNode(source));
-  const targetRect = rectOf(useInternalNode(target));
-
-  // Before the first measurement there is no box to reason about, so fall back to whatever
-  // handle React Flow bound the edge to rather than drawing from a guessed origin.
-  const ends =
-    sourceRect && targetRect
-      ? {
-          from: data?.sourceSide
-            ? pointOn(sourceRect, data.sourceSide)
-            : anchorOf(sourceRect, targetRect),
-          to: data?.targetSide
-            ? pointOn(targetRect, data.targetSide)
-            : anchorOf(targetRect, sourceRect),
-        }
-      : {
-          from: { x: sourceX, y: sourceY, position: sourcePosition },
-          to: { x: targetX, y: targetY, position: targetPosition },
-        };
-
-  const [path, x, y] = curve(ends.from, ends.to, data?.offset ?? 0);
+  // React Flow's own endpoints, because the edge is bound to the handles it is attached to.
+  // Deriving them here instead would let the drawn line and React Flow's interaction anchors
+  // drift apart, which is exactly the bug that made an edge impossible to grab.
+  const [path, x, y] = curve(
+    { x: sourceX, y: sourceY, position: sourcePosition },
+    { x: targetX, y: targetY, position: targetPosition },
+    data?.offset ?? 0,
+  );
 
   /*
    * Selection thickens the line but never repaints a coloured one.

@@ -184,11 +184,14 @@ function GraphCanvasInner({
           // One constant, not a per-edge sign: the normal is computed from the
           // source→target axis, which already points the opposite way for the reverse
           // edge. Flipping the sign as well would cancel that out and stack them again.
+          // Bind the edge to the points it is attached to. Without this React Flow uses the
+          // first handle it finds, and its reconnect anchors then sit ~120px away from the
+          // line we actually draw — so grabbing the end of an edge hits nothing and the
+          // edge reads as unchangeable.
+          sourceHandle: edge.sourceSide ?? null,
+          targetHandle: edge.targetSide ?? null,
           data: {
             offset: reciprocal ? 24 : 0,
-            // Absent means this end is still computed from where the boxes sit.
-            sourceSide: edge.sourceSide,
-            targetSide: edge.targetSide,
             // So the edge can keep its own colour while selected rather than being
             // overpainted with the selection tint.
             color: edge.color,
