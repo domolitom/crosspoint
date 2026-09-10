@@ -425,3 +425,48 @@ test('an edge leaves through the face pointing at the other node', async () => {
     `expected the vertical middle at y=${box.y + box.h / 2}, got ${start.y}`,
   );
 });
+
+/*
+ * `arrow` is the human's control too, not only the agent's — so the header has to reach a
+ * selected edge and the canvas has to draw what the server stored. The marker attributes
+ * are the only evidence: an arrowhead is an SVG marker, invisible to any style assertion.
+ */
+test('the header sets which ends of a selected edge carry an arrowhead', async () => {
+  const seedIn = await freshDiagram('arrows');
+  const a = await seedIn('Arrow A', 0, 0);
+  const b = await seedIn('Arrow B', 0, 260);
+  await stack.op({ op: 'add_edge', source: a, target: b }, 'arrows');
+
+  const id = `${a}->${b}`;
+  const selector = `.react-flow__edge[data-id="${id}"]`;
+  await until('the edge to render', async () =>
+    (await stack.page.locator(selector).count()) > 0,
+  );
+
+  const path = stack.page.locator(`${selector} path.react-flow__edge-path`);
+  assert.equal(await path.getAttribute('marker-start'), null, 'one arrowhead to begin with');
+
+  await stack.page.locator(`${selector} .react-flow__edge-path`).click({ force: true });
+  await until('the edge to report itself selected', async () =>
+    (await stack.page.locator(`${selector}.selected`).count()) > 0,
+  );
+
+  await stack.page.locator('.arrows button[aria-label="both directions"]').click();
+
+  const stored = await until('the arrow to reach the server', async () => {
+    const graph = await stack.graph('arrows');
+    return graph.edges.find((e: any) => e.id === id)?.arrow ?? null;
+  });
+  assert.equal(stored, 'both');
+
+  await until('the second arrowhead to render', async () =>
+    Boolean(await path.getAttribute('marker-start')),
+  );
+
+  await stack.page.locator('.arrows button[aria-label="no direction"]').click();
+  await until('both arrowheads to go', async () => {
+    const graph = await stack.graph('arrows');
+    if (graph.edges.find((e: any) => e.id === id)?.arrow !== 'none') return false;
+    return (await path.getAttribute('marker-end')) === null;
+  });
+});
