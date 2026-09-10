@@ -75,9 +75,15 @@ diagrams elsewhere. To let an agent edit the same graph, register the MCP server
 claude mcp add crosspoint -s user -- npx -y @crosspoint/mcp
 ```
 
-The MCP server is a thin client of the HTTP API, so **the Crosspoint server must be running**
-or every tool call fails. It defaults to `http://localhost:4000`; set `CROSSPOINT_SERVER` if
-you moved it.
+The MCP server is a thin client of the HTTP API. If nothing is listening when the agent makes
+its first call, it starts the server itself, in the directory the agent is working in — so
+`npx crosspoint` is how *you* open the canvas, not a step the agent depends on. The server it
+starts outlives the agent, so restarting the agent does not close your canvas.
+
+It defaults to `http://localhost:4000`; set `CROSSPOINT_SERVER` if you moved it, and
+`CROSSPOINT_NO_SPAWN=1` if you would rather manage the process yourself and be told when it
+is missing. A remote server is never started locally, and a port already answering with
+something that is not Crosspoint is reported rather than adopted.
 
 ### Docker
 

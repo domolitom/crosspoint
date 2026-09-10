@@ -25,7 +25,8 @@ Tests compile first (`tsc`) and run against `dist/`, so a single test file is
 The server takes a **diagrams directory** as `argv[2]` or `CROSSPOINT_DIAGRAMS`; port via
 `CROSSPOINT_PORT`. Passing a `.json` file instead still works and means "one diagram, named
 after the file" — that is how `npm run dev` keeps an existing `graph.json` live. `.mcp.json` wires the MCP server up for Claude Code — it needs
-`npm run build` to have run, and the main server to be up.
+`npm run build` to have run. The main server no longer has to be up: a tool call that finds
+nothing listening starts one (`packages/mcp/src/autostart.ts`).
 
 ### Publishing
 
@@ -238,6 +239,15 @@ actually changed — a bottom-right drag stays one op.
 
 **Workspace scripts run with the package as cwd.** `npm run dev -w @crosspoint/server` created
 its graph in `packages/server/` until the root script started passing an absolute path.
+
+**An auto-started server must be detached with its stdio dropped.** On this transport stdout
+*is* the MCP protocol, so an inherited stdout interleaves server logs into JSON-RPC and kills
+the session. Detached also means the human's canvas survives the agent restarting, and it
+inherits the agent's cwd so diagrams land in the project rather than beside the MCP server.
+
+**Auto-start adopts; it never assumes.** A port already answering Crosspoint is used as-is,
+and a port answering something else is reported rather than adopted — so the probe checks for
+a `nodes` array, because "something responded" is not evidence that it is ours.
 
 **The published tarball keeps the monorepo paths, and that is load-bearing.**
 `bin/crosspoint.js` resolves `packages/server/dist/index.js` relative to the package root, and
