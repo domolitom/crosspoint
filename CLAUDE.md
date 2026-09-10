@@ -248,11 +248,15 @@ actually changed — a bottom-right drag stays one op.
 **Workspace scripts run with the package as cwd.** `npm run dev -w @crosspoint/server` created
 its graph in `packages/server/` until the root script started passing an absolute path.
 
-**A drawn edge pins its points; a generated one computes them.** `sourceSide`/`targetSide`
-on an edge are layout, exactly like a node's `size`: absent means "work it out from where the
-boxes sit", present means a human put it there and it stays. Computing it always was tried
-first and rejected in use — the arrow jumps from one point to another as a box is dragged past
-a diagonal, which is not useful to anyone.
+**Every edge has its points; nothing is computed at render time.** `sourceSide`/`targetSide`
+on an edge are layout, and they are **seeded like a position, not derived like a style**:
+`sideTowards` runs once — in `add_edge`, in `generate_graph`, on the moved end of a
+`reconnect_edge`, and in `normalize` for any edge loaded without them — and the answer is
+stored. Deriving it per render was tried first and rejected in use: the arrow jumps from one
+point to another as a box is dragged past a diagonal, which is not useful to anyone.
+
+This is the same shape as `placeNode`: seed once, never re-solve. An edge whose ends keep
+being recomputed is the edge equivalent of a layout engine re-running over a pinned node.
 
 The canvas writes them with `add_edge_at`, the layout twin of `add_edge`, for the same reason
 `add_node_at` exists: a human dragging between two points has said where the ends go and an
@@ -281,6 +285,19 @@ again on top of it.
 *is* the MCP protocol, so an inherited stdout interleaves server logs into JSON-RPC and kills
 the session. Detached also means the human's canvas survives the agent restarting, and it
 inherits the agent's cwd so diagrams land in the project rather than beside the MCP server.
+
+**The drawn line and React Flow's interaction anchors must come from the same place.** The
+canvas once derived its own endpoints while leaving each edge unbound, so React Flow used the
+first handle it found and put the reconnect anchors ~120px sideways and ~84px above the
+visible line. The line looked perfect and could not be grabbed at all — every test asserted
+where it was *drawn*, which was right. `GraphCanvas` now sets `sourceHandle`/`targetHandle`
+from the stored sides, and `DirectedEdge` draws from the props React Flow hands it. Never
+compute an endpoint the framework also computes.
+
+**A canvas measured with `offsetWidth` disagrees with React Flow by the border width.** React
+Flow places handles from `getBoundingClientRect`, so a 1px border puts the two 2px apart.
+An e2e assertion pinned to the exact pixel fails on that alone; the bug worth catching — an
+end sliding onto a corner — is tens of pixels, so allow a few.
 
 **Auto-start adopts; it never assumes.** A port already answering Crosspoint is used as-is,
 and a port answering something else is reported rather than adopted — so the probe checks for
