@@ -240,6 +240,23 @@ actually changed — a bottom-right drag stays one op.
 **Workspace scripts run with the package as cwd.** `npm run dev -w @crosspoint/server` created
 its graph in `packages/server/` until the root script started passing an absolute path.
 
+**Which side an edge attaches to is computed, never stored.** Nodes carry four handles and
+the canvas runs `ConnectionMode.Loose`, so a drag can start anywhere — but `DirectedEdge`
+derives both endpoints from the two nodes' measured rectangles rather than from the handle
+React Flow bound. Storing the choice would put `sourceHandle`/`targetHandle` into `GraphEdge`,
+which is otherwise pure meaning, and layout belongs to the human, not the document. The cost
+is that deliberate routing — "leave left to dodge that box" — cannot be expressed.
+
+**The face test must weight each delta by the other dimension.** `|dx| > |dy|` puts the arrow
+on the top face of a box it is sitting beside, because a 900px-wide pinned node is exited
+through its side long before the 45° line says so. Compare `|dx| * h` against `|dy| * w`.
+
+**Computed faces make a reciprocal pair one line.** A→B and B→A now pick the same two faces,
+so without the perpendicular offset they draw exactly on top of each other — worse than the
+stacked-labels problem the offset originally existed for. The offset now shifts both
+endpoints, not just the label, and the label rides the shifted path rather than being moved
+again on top of it.
+
 **An auto-started server must be detached with its stdio dropped.** On this transport stdout
 *is* the MCP protocol, so an inherited stdout interleaves server logs into JSON-RPC and kills
 the session. Detached also means the human's canvas survives the agent restarting, and it
