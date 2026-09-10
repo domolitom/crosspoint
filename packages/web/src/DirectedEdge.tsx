@@ -2,8 +2,12 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   getBezierPath,
+  Position,
+  useInternalNode,
   type Edge,
   type EdgeProps,
+  type InternalNode,
+  type Node as FlowNode,
 } from '@xyflow/react';
 import type { NodeColor } from '@crosspoint/core';
 
@@ -17,16 +21,16 @@ export type DirectedEdgeData = {
   /** This edge's assigned palette colour, if any. Absent means uncoloured. */
   color?: NodeColor;
   /**
-   * Perpendicular shift for the label, in pixels.
+   * Perpendicular shift for this edge, in pixels.
    *
-   * A→B and B→A take visibly different routes, but their midpoints land close enough that
-   * the two labels stack and one becomes unreadable. Nudging them apart along the normal
-   * keeps both legible without moving the lines off their handles.
+   * A→B and B→A now choose the same pair of faces, so without this they would be one line
+   * with two labels stacked on it. Shifting both ends and the label along the normal keeps
+   * the pair readable.
    *
    * Note this cannot be done with `pathOptions.curvature`: React Flow ignores curvature
    * whenever the handles already face each other, using `0.5 * distance` instead.
    */
-  labelOffset?: number;
+  offset?: number;
   /** True while this edge's label is being edited in place. */
   editing?: boolean;
   /** Called with the new text. An empty string means "remove the label". */
@@ -34,8 +38,44 @@ export type DirectedEdgeData = {
   onLabelCancel?: () => void;
 };
 
+type Rect = { x: number; y: number; w: number; h: number };
+type Anchor = { x: number; y: number; position: Position };
+
+function rectOf(node: InternalNode<FlowNode> | undefined): Rect | null {
+  const w = node?.measured?.width;
+  const h = node?.measured?.height;
+  if (!node || !w || !h) return null;
+  const { x, y } = node.internals.positionAbsolute;
+  return { x, y, w, h };
+}
+
+/**
+ * The point on `from` where a line to `to` leaves the box, snapped to the middle of a face.
+ *
+ * The comparison weights each delta by the *other* dimension rather than comparing them
+ * raw: a 900px-wide pinned node is exited through its side long before the 45° line says
+ * so, and using raw deltas puts the arrow on the top face of a box it is beside.
+ */
+function anchorOf(from: Rect, to: Rect): Anchor {
+  const fx = from.x + from.w / 2;
+  const fy = from.y + from.h / 2;
+  const dx = to.x + to.w / 2 - fx;
+  const dy = to.y + to.h / 2 - fy;
+
+  if (Math.abs(dx) * from.h > Math.abs(dy) * from.w) {
+    return dx > 0
+      ? { x: from.x + from.w, y: fy, position: Position.Right }
+      : { x: from.x, y: fy, position: Position.Left };
+  }
+  return dy > 0
+    ? { x: fx, y: from.y + from.h, position: Position.Bottom }
+    : { x: fx, y: from.y, position: Position.Top };
+}
+
 export function DirectedEdge({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -48,22 +88,39 @@ export function DirectedEdge({
   data,
   selected,
 }: EdgeProps<Edge<DirectedEdgeData>>) {
-  const [path, labelX, labelY] = getBezierPath({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    sourcePosition,
-    targetPosition,
-  });
+  const sourceRect = rectOf(useInternalNode(source));
+  const targetRect = rectOf(useInternalNode(target));
 
-  const offset = data?.labelOffset ?? 0;
-  const dx = targetX - sourceX;
-  const dy = targetY - sourceY;
+  // Before the first measurement there is no box to reason about, so fall back to whatever
+  // handle React Flow bound the edge to rather than drawing from a guessed origin.
+  const ends =
+    sourceRect && targetRect
+      ? { from: anchorOf(sourceRect, targetRect), to: anchorOf(targetRect, sourceRect) }
+      : {
+          from: { x: sourceX, y: sourceY, position: sourcePosition },
+          to: { x: targetX, y: targetY, position: targetPosition },
+        };
+
+  const offset = data?.offset ?? 0;
+  const dx = ends.to.x - ends.from.x;
+  const dy = ends.to.y - ends.from.y;
   const length = Math.hypot(dx, dy) || 1;
   // Unit normal to the source→target axis.
-  const x = labelX + (-dy / length) * offset;
-  const y = labelY + (dx / length) * offset;
+  const nx = -dy / length;
+  const ny = dx / length;
+
+  const [path, labelX, labelY] = getBezierPath({
+    sourceX: ends.from.x + nx * offset,
+    sourceY: ends.from.y + ny * offset,
+    targetX: ends.to.x + nx * offset,
+    targetY: ends.to.y + ny * offset,
+    sourcePosition: ends.from.position,
+    targetPosition: ends.to.position,
+  });
+
+  // The path is already shifted, so its midpoint carries the label with it.
+  const x = labelX;
+  const y = labelY;
 
   /*
    * Selection thickens the line but never repaints a coloured one.

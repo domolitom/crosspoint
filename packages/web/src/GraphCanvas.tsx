@@ -2,6 +2,7 @@ import {
   applyEdgeChanges,
   applyNodeChanges,
   Background,
+  ConnectionMode,
   Controls,
   MarkerType,
   MiniMap,
@@ -167,7 +168,7 @@ function GraphCanvasInner({
           // source→target axis, which already points the opposite way for the reverse
           // edge. Flipping the sign as well would cancel that out and stack them again.
           data: {
-            labelOffset: reciprocal ? 22 : 0,
+            offset: reciprocal ? 24 : 0,
             // So the edge can keep its own colour while selected rather than being
             // overpainted with the selection tint.
             color: edge.color,
@@ -476,6 +477,9 @@ function GraphCanvasInner({
       onNodeDragStop={onNodeDragStop}
       onConnect={onConnect}
       onReconnect={onReconnect}
+      // Every handle is a `source`; loose mode lets any of them receive too, so a drag can
+      // start and land on whichever side happens to face the other node.
+      connectionMode={ConnectionMode.Loose}
       // Default is 10px, which makes the endpoint fiddly to grab on a curved edge.
       reconnectRadius={20}
       // Defaults to Backspace alone, so Delete — what most full keyboards offer —

@@ -32,6 +32,21 @@ export type CanvasNodeData = {
   minHeight?: number;
 };
 
+/**
+ * A connection point per side, every one of them a `source`.
+ *
+ * The canvas runs in `ConnectionMode.Loose`, so any of these also accepts an incoming edge —
+ * which is what lets a drag start from whichever side faces the other node. Which side an
+ * edge is *drawn* on is computed in `DirectedEdge`, never stored: a saved side would be
+ * geometry in the document, and layout is the human's, not the file's.
+ */
+const SIDES = [
+  ['top', Position.Top],
+  ['right', Position.Right],
+  ['bottom', Position.Bottom],
+  ['left', Position.Left],
+] as const;
+
 export function CanvasNode({ data, selected }: NodeProps<Node<CanvasNodeData>>) {
   const linked = Boolean(data.subcanvas);
 
@@ -51,7 +66,9 @@ export function CanvasNode({ data, selected }: NodeProps<Node<CanvasNodeData>>) 
           )
         }
       />
-      <Handle type="target" position={Position.Top} />
+      {SIDES.map(([id, position]) => (
+        <Handle key={id} id={id} type="source" position={position} />
+      ))}
       {data.editing ? (
         <LabelInput
           initial={data.label}
@@ -83,7 +100,6 @@ export function CanvasNode({ data, selected }: NodeProps<Node<CanvasNodeData>>) 
           ⧉
         </button>
       )}
-      <Handle type="source" position={Position.Bottom} />
     </>
   );
 }

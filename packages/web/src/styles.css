@@ -549,3 +549,16 @@ body,
   background: #ede9fe;
   border-color: #7c3aed;
 }
+
+/* Connection points stay quiet until reached for. Four per node is four times the clutter
+   at rest, and an idle canvas should read as boxes and lines rather than as ports. Opacity
+   rather than display, so a handle keeps its box and stays draggable the moment it shows. */
+.react-flow__node .react-flow__handle {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.react-flow__node:hover .react-flow__handle,
+.react-flow__node.selected .react-flow__handle {
+  opacity: 1;
+}
