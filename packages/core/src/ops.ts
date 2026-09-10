@@ -4,8 +4,10 @@ import { generateGraph } from './generate.js';
 import { slugify, uniqueId } from './ids.js';
 import { placeNode, snapPosition, snapSize } from './placement.js';
 import {
+  EDGE_ARROWS,
   NODE_COLORS,
   type ColorInput,
+  type EdgeArrow,
   type Graph,
   type GraphEdge,
   type GraphNode,
@@ -58,12 +60,27 @@ function mergeNodeData(
 }
 
 /**
+ * Reject an unknown arrow rather than storing it — the same door `requireColor` guards.
+ */
+function requireArrow(arrow: unknown): void {
+  if (arrow === undefined) return;
+  if (typeof arrow !== 'string' || !(EDGE_ARROWS as readonly string[]).includes(arrow)) {
+    throw new GraphError(
+      `Unknown arrow "${String(arrow)}" — expected one of ${EDGE_ARROWS.join(', ')}`,
+    );
+  }
+}
+
+/**
  * Fold a label / colour change into an existing edge.
  *
  * Independent, exactly as for nodes: relabelling must not drop a colour, and recolouring
  * must not clear a label. `none` removes the key so an uncoloured edge reads as untouched.
  */
-function mergeEdge(current: GraphEdge, change: { label?: string; color?: ColorInput }): GraphEdge {
+function mergeEdge(
+  current: GraphEdge,
+  change: { label?: string; color?: ColorInput; arrow?: EdgeArrow },
+): GraphEdge {
   const edge: GraphEdge = { ...current };
   // An empty label removes the key rather than storing `""`, matching how `color` and a
   // node's `subcanvas` clear. An edge with no text should read as untouched in the file,
@@ -72,6 +89,10 @@ function mergeEdge(current: GraphEdge, change: { label?: string; color?: ColorIn
   else if (change.label !== undefined) edge.label = change.label;
   if (change.color === 'none') delete edge.color;
   else if (change.color !== undefined) edge.color = change.color;
+  // `forward` is the default, so it clears rather than stores — an ordinary edge should
+  // read as untouched in the file.
+  if (change.arrow === 'forward') delete edge.arrow;
+  else if (change.arrow !== undefined) edge.arrow = change.arrow;
   return edge;
 }
 
@@ -142,11 +163,13 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       requireNode(graph, op.source, 'source');
       requireNode(graph, op.target, 'target');
       requireColor(op.color);
+      requireArrow(op.arrow);
       const taken = new Set(graph.edges.map((e) => e.id));
       const id = uniqueId(`${op.source}->${op.target}`, taken);
       const edge: GraphEdge = { id, source: op.source, target: op.target };
       if (op.label) edge.label = op.label;
       if (op.color && op.color !== 'none') edge.color = op.color;
+      if (op.arrow && op.arrow !== 'forward') edge.arrow = op.arrow;
       return { ...next, edges: [...graph.edges, edge] };
     }
 
@@ -167,6 +190,7 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       // is not a reason to lose the label or the colour that said what it meant.
       if (existing.label !== undefined) reconnected.label = existing.label;
       if (existing.color !== undefined) reconnected.color = existing.color;
+      if (existing.arrow !== undefined) reconnected.arrow = existing.arrow;
 
       return {
         ...next,
@@ -192,6 +216,7 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
         throw new GraphError(`No edge with id "${op.id}"`);
       }
       requireColor(op.color);
+      requireArrow(op.arrow);
       return {
         ...next,
         edges: graph.edges.map((e) => (e.id === op.id ? mergeEdge(e, op) : e)),
@@ -312,6 +337,7 @@ export function structuralView(graph: Graph) {
       ...(e.label ? { label: e.label } : {}),
       // Colour is meaning, so it belongs in the agent's view. Position does not.
       ...(e.color ? { color: e.color } : {}),
+      ...(e.arrow ? { arrow: e.arrow } : {}),
     })),
   };
 }

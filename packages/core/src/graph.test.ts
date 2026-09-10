@@ -787,3 +787,58 @@ test('a move naming an unknown node still throws rather than being absorbed', ()
     GraphError,
   );
 });
+
+/*
+ * `arrow` follows the rules `color` established: validated at the door, stored by name, and
+ * the default is absence rather than a sentinel.
+ */
+test('an edge carries which ends have arrowheads', () => {
+  let g = build();
+  const id = 'auth-service->database';
+
+  assert.equal(g.edges[0].arrow, undefined, 'an ordinary edge stores nothing');
+
+  g = applyOp(g, { op: 'update_edge', id, arrow: 'both' });
+  assert.equal(g.edges[0].arrow, 'both');
+
+  g = applyOp(g, { op: 'update_edge', id, label: 'depends on' });
+  assert.equal(g.edges[0].arrow, 'both', 'relabelling must not drop it');
+
+  g = applyOp(g, { op: 'update_edge', id, arrow: 'forward' });
+  assert.equal(g.edges[0].arrow, undefined, 'the default clears the key, not stores it');
+});
+
+test('add_edge takes an arrow, and an unknown one is refused', () => {
+  let g = build();
+  g = applyOp(g, { op: 'add_node', label: 'Cache' });
+  g = applyOp(g, { op: 'add_edge', source: 'database', target: 'cache', arrow: 'none' });
+
+  assert.equal(g.edges.find((e) => e.id === 'database->cache')!.arrow, 'none');
+
+  assert.throws(
+    () => applyOp(g, { op: 'add_edge', source: 'cache', target: 'database', arrow: 'sideways' as never }),
+    GraphError,
+  );
+});
+
+test('an arrow survives a reconnect and a round trip through the file', () => {
+  let g = build();
+  g = applyOp(g, { op: 'add_node', label: 'Cache' });
+  g = applyOp(g, { op: 'update_edge', id: 'auth-service->database', arrow: 'both' });
+  g = applyOp(g, {
+    op: 'reconnect_edge',
+    id: 'auth-service->database',
+    source: 'auth-service',
+    target: 'cache',
+  });
+  assert.equal(g.edges[0].arrow, 'both', 'pointing it elsewhere is not a reason to lose it');
+
+  // Serialising names its keys one by one, so a new field is dropped unless it is added.
+  assert.equal(parse(serialize(g)).edges[0].arrow, 'both');
+});
+
+test('the agent sees the arrow, since it is meaning rather than layout', () => {
+  let g = build();
+  g = applyOp(g, { op: 'update_edge', id: 'auth-service->database', arrow: 'both' });
+  assert.equal((structuralView(g).edges[0] as { arrow?: string }).arrow, 'both');
+});

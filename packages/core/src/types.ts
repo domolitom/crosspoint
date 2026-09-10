@@ -52,6 +52,18 @@ export type NodeColor = (typeof NODE_COLORS)[number];
 /** What an op may ask for. `none` clears the colour and is never itself stored. */
 export type ColorInput = NodeColor | 'none';
 
+/**
+ * Which ends of an edge carry an arrowhead.
+ *
+ * `forward` is the default and is never stored — an edge with no `arrow` key reads as an
+ * ordinary directed edge, exactly as an edge with no `color` reads as uncoloured. `both`
+ * says the two depend on each other; `none` is a plain association with no direction at all,
+ * which the model previously could not express.
+ */
+export const EDGE_ARROWS = ['forward', 'both', 'none'] as const;
+
+export type EdgeArrow = (typeof EDGE_ARROWS)[number];
+
 export interface NodeData {
   label: string;
   /** Absent means uncoloured. An uncoloured node carries no colour key at all. */
@@ -83,6 +95,11 @@ export interface GraphEdge {
    * as one vocabulary across the diagram rather than two.
    */
   color?: NodeColor;
+  /**
+   * Absent means `forward`. Stored by name for the same reason colour is: a reader can
+   * rely on it, and `arrow: "both"` says what an arrowhead flag never would.
+   */
+  arrow?: Exclude<EdgeArrow, 'forward'>;
 }
 
 export interface Graph {
@@ -151,6 +168,8 @@ export type StructuralOp =
       target: string;
       label?: string;
       color?: ColorInput;
+      /** Structural, like colour: which ends carry an arrowhead is a statement, not layout. */
+      arrow?: EdgeArrow;
     }
   | { op: 'reconnect_edge'; id: string; source: string; target: string }
   | {
@@ -172,6 +191,8 @@ export type StructuralOp =
       label?: string;
       /** Structural for the same reason node colour is: recolouring moves nothing. */
       color?: ColorInput;
+      /** `forward` clears the key rather than storing the default. */
+      arrow?: EdgeArrow;
     }
   | { op: 'delete_node'; id: string }
   | { op: 'delete_edge'; id: string }
