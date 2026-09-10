@@ -151,6 +151,8 @@ The two disagree in both directions, which is the point:
 | --- | --- | --- | --- |
 | `align`, `distribute` | `false` | `layout` | names no coordinate, so an agent may issue it — but only moves boxes, so it is noise |
 | `add_node_at` | `true` | `structural` | names a coordinate, so agents cannot issue it — but creates a node, which is always the message |
+| `add_edge_at` | `true` | `structural` | same shape: names the points, so canvas-only — but creating an edge is the message |
+| `attach_edge` | `true` | `layout` | canvas-only, and only moves which point a line touches |
 | `move_node`, `resize_node` | `true` | `layout` | both |
 | `generate_graph` | `false` | `structural` | server computes the geometry, and creating a diagram *is* the message |
 
@@ -246,12 +248,24 @@ actually changed — a bottom-right drag stays one op.
 **Workspace scripts run with the package as cwd.** `npm run dev -w @crosspoint/server` created
 its graph in `packages/server/` until the root script started passing an absolute path.
 
-**Which side an edge attaches to is computed, never stored.** Nodes carry four handles and
-the canvas runs `ConnectionMode.Loose`, so a drag can start anywhere — but `DirectedEdge`
-derives both endpoints from the two nodes' measured rectangles rather than from the handle
-React Flow bound. Storing the choice would put `sourceHandle`/`targetHandle` into `GraphEdge`,
-which is otherwise pure meaning, and layout belongs to the human, not the document. The cost
-is that deliberate routing — "leave left to dodge that box" — cannot be expressed.
+**A drawn edge pins its points; a generated one computes them.** `sourceSide`/`targetSide`
+on an edge are layout, exactly like a node's `size`: absent means "work it out from where the
+boxes sit", present means a human put it there and it stays. Computing it always was tried
+first and rejected in use — the arrow jumps from one point to another as a box is dragged past
+a diagonal, which is not useful to anyone.
+
+The canvas writes them with `add_edge_at`, the layout twin of `add_edge`, for the same reason
+`add_node_at` exists: a human dragging between two points has said where the ends go and an
+agent has not, so keeping the sides off `add_edge` is what stops an agent expressing them.
+One op, so drawing an edge stays one undo step. `attach_edge` moves an end afterwards, and
+`auto` releases it back to computed.
+
+`add_edge_at` is `kindOf` **structural** — it creates an edge, which is always the message.
+`attach_edge` is `layout`: it only changes which point a line touches. Same split as
+`add_node_at` versus `move_node`.
+
+A reconnect keeps the pin on the end that did *not* move and releases the one that did, since
+a point only means something for the node it was pinned to.
 
 **The face test must weight each delta by the other dimension.** `|dx| > |dy|` puts the arrow
 on the top face of a box it is sitting beside, because a 900px-wide pinned node is exited
