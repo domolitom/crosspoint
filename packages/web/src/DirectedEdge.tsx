@@ -8,7 +8,7 @@ import {
   type InternalNode,
   type Node as FlowNode,
 } from '@xyflow/react';
-import type { NodeColor } from '@crosspoint/core';
+import type { EdgeSide, NodeColor } from '@crosspoint/core';
 
 import { LabelInput } from './LabelInput';
 
@@ -26,6 +26,14 @@ export type DirectedEdgeData = {
    * labels. It bends the curve; the ends stay on their connection points.
    */
   offset?: number;
+  /**
+   * Pinned connection points. Absent means that end follows the arrangement.
+   *
+   * Recomputing a pinned end is the whole bug this exists to stop: the arrow jumped from
+   * one point to another as a box was dragged past a diagonal.
+   */
+  sourceSide?: EdgeSide;
+  targetSide?: EdgeSide;
   /** True while this edge's label is being edited in place. */
   editing?: boolean;
   /** Called with the new text. An empty string means "remove the label". */
@@ -65,6 +73,20 @@ function anchorOf(from: Rect, to: Rect): Anchor {
   return dy > 0
     ? { x: fx, y: from.y + from.h, position: Position.Bottom }
     : { x: fx, y: from.y, position: Position.Top };
+}
+
+/** The point in the middle of one named face. */
+function pointOn(rect: Rect, side: EdgeSide): Anchor {
+  switch (side) {
+    case 'top':
+      return { x: rect.x + rect.w / 2, y: rect.y, position: Position.Top };
+    case 'right':
+      return { x: rect.x + rect.w, y: rect.y + rect.h / 2, position: Position.Right };
+    case 'bottom':
+      return { x: rect.x + rect.w / 2, y: rect.y + rect.h, position: Position.Bottom };
+    case 'left':
+      return { x: rect.x, y: rect.y + rect.h / 2, position: Position.Left };
+  }
 }
 
 /** Which way is out of a face. Used to leave the box perpendicular to the side it starts on. */
@@ -128,7 +150,14 @@ export function DirectedEdge({
   // handle React Flow bound the edge to rather than drawing from a guessed origin.
   const ends =
     sourceRect && targetRect
-      ? { from: anchorOf(sourceRect, targetRect), to: anchorOf(targetRect, sourceRect) }
+      ? {
+          from: data?.sourceSide
+            ? pointOn(sourceRect, data.sourceSide)
+            : anchorOf(sourceRect, targetRect),
+          to: data?.targetSide
+            ? pointOn(targetRect, data.targetSide)
+            : anchorOf(targetRect, sourceRect),
+        }
       : {
           from: { x: sourceX, y: sourceY, position: sourcePosition },
           to: { x: targetX, y: targetY, position: targetPosition },

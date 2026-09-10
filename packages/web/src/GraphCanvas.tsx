@@ -16,7 +16,7 @@ import {
   type NodeChange,
   type NodeProps,
 } from '@xyflow/react';
-import type { Graph, GraphOp, NodeColor, Position } from '@crosspoint/core';
+import { EDGE_SIDES, type EdgeSide, type Graph, type GraphOp, type NodeColor, type Position } from '@crosspoint/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { CanvasNode } from './CanvasNode';
@@ -35,6 +35,13 @@ import { LabelInput } from './LabelInput';
 // Module scope: a fresh object each render remounts every node and edge.
 const edgeTypes = { directed: DirectedEdge };
 const nodeTypes = { default: CanvasNode };
+
+/**
+ * The side a handle belongs to. Handle ids are the side names, so this is a validation
+ * step rather than a lookup — React Flow types them as `string | null`.
+ */
+const sideOf = (handle: string | null | undefined): EdgeSide =>
+  (EDGE_SIDES as readonly string[]).includes(handle ?? '') ? (handle as EdgeSide) : 'top';
 
 /** An arrowhead in the edge's own colour — React Flow bakes the colour into the marker. */
 const marker = (color: string) => ({
@@ -179,6 +186,9 @@ function GraphCanvasInner({
           // edge. Flipping the sign as well would cancel that out and stack them again.
           data: {
             offset: reciprocal ? 24 : 0,
+            // Absent means this end is still computed from where the boxes sit.
+            sourceSide: edge.sourceSide,
+            targetSide: edge.targetSide,
             // So the edge can keep its own colour while selected rather than being
             // overpainted with the selection tint.
             color: edge.color,
@@ -265,8 +275,17 @@ function GraphCanvasInner({
       // No optimistic edge: the server assigns the id (`source->target`), and inventing a
       // local one would briefly render a duplicate that then gets replaced. It keeps the
       // server the only authority on what exists — the rule every mutation here follows.
+      //
+      // `add_edge_at` rather than `add_edge`: a human dragged between two points, so the
+      // ends are pinned there and stop being recomputed. One op, so it is one undo step.
       if (connection.source && connection.target) {
-        emit({ op: 'add_edge', source: connection.source, target: connection.target });
+        emit({
+          op: 'add_edge_at',
+          source: connection.source,
+          target: connection.target,
+          sourceSide: sideOf(connection.sourceHandle),
+          targetSide: sideOf(connection.targetHandle),
+        });
       }
     },
     [emit],
@@ -274,14 +293,27 @@ function GraphCanvasInner({
 
   const onReconnect = useCallback(
     (oldEdge: Edge, connection: Connection) => {
-      if (connection.source && connection.target) {
+      if (!connection.source || !connection.target) return;
+
+      // Dropping an end on a different point of the same nodes is a re-point, not a
+      // reconnect — `reconnect_edge` would regenerate the id for a move that changed
+      // nothing about what connects to what.
+      if (connection.source === oldEdge.source && connection.target === oldEdge.target) {
         emit({
-          op: 'reconnect_edge',
+          op: 'attach_edge',
           id: oldEdge.id,
-          source: connection.source,
-          target: connection.target,
+          source: sideOf(connection.sourceHandle),
+          target: sideOf(connection.targetHandle),
         });
+        return;
       }
+
+      emit({
+        op: 'reconnect_edge',
+        id: oldEdge.id,
+        source: connection.source,
+        target: connection.target,
+      });
     },
     [emit],
   );
