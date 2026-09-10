@@ -421,8 +421,11 @@ function assertOnPoint(
   expected: { x: number; y: number },
   what: string,
 ) {
+  // 3px, not 0: this measures the node with `offsetWidth` while React Flow places its
+  // handles from `getBoundingClientRect`, and the 1px border puts them 2px apart. The bug
+  // this guards — an end sliding onto a corner — is tens of pixels, so the slack is free.
   assert.ok(
-    Math.abs(actual.x - expected.x) < 1 && Math.abs(actual.y - expected.y) < 1,
+    Math.abs(actual.x - expected.x) < 3 && Math.abs(actual.y - expected.y) < 3,
     `${what}: expected the connection point at (${expected.x}, ${expected.y}), got (${actual.x}, ${actual.y})`,
   );
 }
@@ -597,7 +600,7 @@ test('an edge drawn onto a point stays on it when the node moves', async () => {
   assert.equal(edge.targetSide, 'top');
 
   await until('the edge to render on the pinned point', async () =>
-    Math.abs((await pathStart(edge.id)).y - (await flowRect(a)).y) < 1,
+    Math.abs((await pathStart(edge.id)).y - (await flowRect(a)).y) < 3,
   );
 
   // Now drag A well below B. The automatic rule would swing this to another face; pinned,
@@ -611,4 +614,59 @@ test('an edge drawn onto a point stays on it when the node moves', async () => {
   });
 
   assertOnPoint(await pathStart(edge.id), points(await flowRect(a)).top, 'after moving the node');
+});
+
+/*
+ * Grabbing the end of an edge and dropping it on another point.
+ *
+ * This was impossible for a while and nothing caught it: the canvas drew its own geometry
+ * while React Flow placed the reconnect anchors at whichever handle it had bound, ~120px
+ * across and ~84px above the visible line. Every existing test asserted where the line was
+ * *drawn*, which was right — the part that was wrong was where you could grab it.
+ */
+test('an edge end can be grabbed and moved to another point', async () => {
+  const seedIn = await freshDiagram('repoint');
+  const a = await seedIn('Repoint A', 0, 0);
+  const b = await seedIn('Repoint B', 240, 0);
+  await stack.op({ op: 'add_edge', source: a, target: b }, 'repoint');
+
+  const id = `${a}->${b}`;
+  await until('the edge to render', async () =>
+    (await stack.page.locator(`.react-flow__edge[data-id="${id}"]`).count()) > 0,
+  );
+  await settleViewport(stack.page);
+
+  const before = await stack.graph('repoint').then((g: any) => g.edges[0]);
+  assert.equal(before.targetSide, 'left', 'seeded facing the source');
+
+  // The anchor has to be where the line is. If it is not, this drag grabs empty canvas and
+  // the edge never moves — which is exactly how the bug presented.
+  const anchor = await stack.page
+    .locator(`.react-flow__edge[data-id="${id}"] .react-flow__edgeupdater-target`)
+    .boundingBox();
+  const landing = await stack.page
+    .locator(`.react-flow__node[data-id="${b}"] .react-flow__handle-top`)
+    .boundingBox();
+  assert.ok(anchor && landing, 'the reconnect anchor and the destination point must exist');
+
+  await dragMouse(
+    stack.page,
+    { x: anchor.x + anchor.width / 2, y: anchor.y + anchor.height / 2 },
+    { x: landing.x + landing.width / 2, y: landing.y + landing.height / 2 },
+  );
+
+  const moved = await until('the new point to reach the server', async () => {
+    const edge = await stack.graph('repoint').then((g: any) => g.edges[0]);
+    return edge?.targetSide === 'top' ? edge : null;
+  });
+
+  assert.equal(moved.id, id, 're-pointing must not regenerate the id — nothing reconnected');
+  assert.equal(moved.source, a);
+  assert.equal(moved.target, b);
+  // The server confirming is not the canvas having drawn it — wait for the push to land.
+  await until('the line to redraw on the new point', async () => {
+    const end = await pathEnd(id);
+    return Math.abs(end.y - (await flowRect(b)).y) < 3;
+  });
+  assertOnPoint(await pathEnd(id), points(await flowRect(b)).top, 'after re-pointing');
 });
