@@ -85,10 +85,11 @@ jobs:
             | node_modules/.bin/crosspoint-mcp | grep -q '"name":"get_graph"'
 
       # No token: npm authenticates the workflow's OIDC identity against the trusted
-      # publisher configured on each package. Core first, since the CLI depends on it.
+      # publisher configured on each package. Dependency order — the CLI needs core, and
+      # the MCP server needs the CLI to have something to start.
       - name: Publish
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           npm publish -w @crosspoint/core
-          npm publish -w @crosspoint/mcp
           npm publish
+          npm publish -w @crosspoint/mcp
