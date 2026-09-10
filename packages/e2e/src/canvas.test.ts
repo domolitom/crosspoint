@@ -108,11 +108,13 @@ test('connecting two nodes creates an edge with the server-assigned id', async (
     (await stack.page.locator(`.react-flow__node[data-id="${dst}"]`).count()) > 0,
   );
 
+  // Every handle is a `source` under ConnectionMode.Loose, so a side is named rather than
+  // a role: the target sits below, which is the face a person would drag between.
   const source = await stack.page
-    .locator(`.react-flow__node[data-id="${src}"] .react-flow__handle.source`)
+    .locator(`.react-flow__node[data-id="${src}"] .react-flow__handle-bottom`)
     .boundingBox();
   const target = await stack.page
-    .locator(`.react-flow__node[data-id="${dst}"] .react-flow__handle.target`)
+    .locator(`.react-flow__node[data-id="${dst}"] .react-flow__handle-top`)
     .boundingBox();
   assert.ok(source && target, 'both handles must be present to drag a connection');
 
@@ -214,10 +216,10 @@ test('reconnecting an edge endpoint moves it and keeps its label', async () => {
     .locator(`${selector} .react-flow__edgeupdater-target`)
     .boundingBox();
   const landing = await stack.page
-    .locator(`.react-flow__node[data-id="${next}"] .react-flow__handle.target`)
+    .locator(`.react-flow__node[data-id="${next}"] .react-flow__handle-top`)
     .boundingBox();
   assert.ok(target, 'the edge should expose a target reconnect anchor');
-  assert.ok(landing, 'the destination node should expose a target handle');
+  assert.ok(landing, 'the destination node should expose a handle to land on');
 
   await dragMouse(
     stack.page,
@@ -373,4 +375,53 @@ test('deleting a node sends one op, not a delete_edge its cascade already did', 
   const feed = await (await fetch(`${API}/api/changes?since=${before.rev}`)).json();
   const ops = feed.entries.map((e: any) => e.op.op);
   assert.deepEqual(ops, ['delete_node'], `expected one op, got ${ops.join(', ') || 'none'}`);
+});
+
+/** A node's box in flow coordinates, which is the space an edge path is drawn in. */
+async function flowRect(id: string) {
+  return await stack.page.$eval(`.react-flow__node[data-id="${id}"]`, (el) => {
+    const m = /translate\(\s*([-\d.]+)px,\s*([-\d.]+)px\)/.exec((el as HTMLElement).style.transform);
+    return {
+      x: Number(m?.[1] ?? 0),
+      y: Number(m?.[2] ?? 0),
+      w: (el as HTMLElement).offsetWidth,
+      h: (el as HTMLElement).offsetHeight,
+    };
+  });
+}
+
+/** Where the drawn edge starts — the `M x,y` that opens its path. */
+async function pathStart(edgeId: string) {
+  const d = await stack.page.getAttribute(`.react-flow__edge[data-id="${edgeId}"] path.react-flow__edge-path`, 'd');
+  const m = /^M\s*([-\d.]+)[, ]\s*([-\d.]+)/.exec(d ?? '');
+  assert.ok(m, `could not read the path of ${edgeId}: ${d}`);
+  return { x: Number(m[1]), y: Number(m[2]) };
+}
+
+/*
+ * The side an edge uses is computed, never stored — so it has to follow the arrangement.
+ * A neighbour to the right must be reached across the right face, not looped from the
+ * bottom, and the same pair placed vertically must use the bottom face instead.
+ */
+test('an edge leaves through the face pointing at the other node', async () => {
+  const seedIn = await freshDiagram('sides');
+  const a = await seedIn('Side A', 0, 0);
+  const b = await seedIn('Side B', 400, 0);
+  await stack.op({ op: 'add_edge', source: a, target: b }, 'sides');
+
+  await until('the edge to render', async () =>
+    (await stack.page.locator(`.react-flow__edge[data-id="${a}->${b}"]`).count()) > 0,
+  );
+
+  const box = await flowRect(a);
+  const start = await pathStart(`${a}->${b}`);
+
+  assert.ok(
+    Math.abs(start.x - (box.x + box.w)) < 2,
+    `expected the right face at x=${box.x + box.w}, got ${start.x}`,
+  );
+  assert.ok(
+    Math.abs(start.y - (box.y + box.h / 2)) < 2,
+    `expected the vertical middle at y=${box.y + box.h / 2}, got ${start.y}`,
+  );
 });
