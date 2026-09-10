@@ -2,7 +2,7 @@ import { alignNodes, distributeNodes } from './arrange.js';
 import { GraphError } from './errors.js';
 import { generateGraph } from './generate.js';
 import { slugify, uniqueId } from './ids.js';
-import { placeNode, snapPosition, snapSize } from './placement.js';
+import { nodeSize, placeNode, sideTowards, snapPosition, snapSize } from './placement.js';
 import {
   EDGE_ARROWS,
   EDGE_SIDES,
@@ -133,12 +133,18 @@ export function normalize(graph: Graph): Graph {
   }
 
   const edgeIds = new Set<string>();
-  const edges = graph.edges.filter((edge) => {
+  const kept = graph.edges.filter((edge) => {
     if (edgeIds.has(edge.id)) return false;
     if (!seen.has(edge.source) || !seen.has(edge.target)) return false;
     edgeIds.add(edge.id);
     return true;
   });
+
+  // Seed the connection points the same way positions are seeded: an edge that has none
+  // gets one now and keeps it. Leaving them absent means the canvas has to work them out
+  // per frame, and an arrow that is recomputed is an arrow that jumps.
+  const by = new Map(nodes.map((n) => [n.id, n]));
+  const edges = kept.map((edge) => attachDefaults(edge, by));
 
   return { rev: graph.rev ?? 0, nodes, edges };
 }
@@ -173,13 +179,21 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
     }
 
     case 'add_edge': {
-      requireNode(graph, op.source, 'source');
-      requireNode(graph, op.target, 'target');
       requireColor(op.color);
       requireArrow(op.arrow);
       const taken = new Set(graph.edges.map((e) => e.id));
       const id = uniqueId(`${op.source}->${op.target}`, taken);
-      const edge: GraphEdge = { id, source: op.source, target: op.target };
+      const source = requireNode(graph, op.source, 'source');
+      const target = requireNode(graph, op.target, 'target');
+      // Seeded by the server from where the boxes sit, exactly as `add_node` gets its
+      // position from `placeNode`. The issuer named no geometry; the server resolved it.
+      const edge: GraphEdge = {
+        id,
+        source: op.source,
+        target: op.target,
+        sourceSide: sideTowards(source, target),
+        targetSide: sideTowards(target, source),
+      };
       if (op.label) edge.label = op.label;
       if (op.color && op.color !== 'none') edge.color = op.color;
       if (op.arrow && op.arrow !== 'forward') edge.arrow = op.arrow;
@@ -207,12 +221,16 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       // A pinned point only means something for the node it was pinned to. The end that
       // moved is now on a different box, so it goes back to automatic; the end that stayed
       // put keeps the point the human chose for it.
-      if (existing.source === op.source && existing.sourceSide !== undefined) {
-        reconnected.sourceSide = existing.sourceSide;
-      }
-      if (existing.target === op.target && existing.targetSide !== undefined) {
-        reconnected.targetSide = existing.targetSide;
-      }
+      const from = requireNode(graph, op.source, 'source');
+      const to = requireNode(graph, op.target, 'target');
+      reconnected.sourceSide =
+        existing.source === op.source && existing.sourceSide !== undefined
+          ? existing.sourceSide
+          : sideTowards(from, to);
+      reconnected.targetSide =
+        existing.target === op.target && existing.targetSide !== undefined
+          ? existing.targetSide
+          : sideTowards(to, from);
 
       return {
         ...next,
@@ -324,9 +342,12 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       }
 
       const { nodes, edges } = generateGraph(op.nodes, op.edges);
+      // Seeded from dagre's own layout, so a generated diagram opens with its arrows already
+      // on a sensible point and never recomputes them afterwards.
+      const placed = new Map(nodes.map((n) => [n.id, n]));
       // One rev for the whole graph, however large. Forty separate add_node calls would
       // burn forty revs and forty file writes, and the canvas would flail through them.
-      return { ...next, nodes, edges };
+      return { ...next, nodes, edges: edges.map((e) => attachDefaults(e, placed)) };
     }
 
     // Layout intent, resolved into geometry on this side of the boundary. The issuer named
@@ -378,6 +399,19 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       };
     }
   }
+}
+
+/** Give an edge the points it is missing, from where its two nodes currently sit. */
+function attachDefaults(edge: GraphEdge, nodes: Map<string, PlacedNode>): GraphEdge {
+  if (edge.sourceSide && edge.targetSide) return edge;
+  const source = nodes.get(edge.source);
+  const target = nodes.get(edge.target);
+  if (!source || !target) return edge;
+  return {
+    ...edge,
+    sourceSide: edge.sourceSide ?? sideTowards(source, target),
+    targetSide: edge.targetSide ?? sideTowards(target, source),
+  };
 }
 
 /** Returns the node so a caller can compare against what it already holds. */

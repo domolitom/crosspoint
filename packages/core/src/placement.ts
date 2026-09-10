@@ -1,4 +1,4 @@
-import type { GraphNode, Position, Size } from './types.js';
+import type { EdgeSide, GraphNode, Position, Size } from './types.js';
 
 /**
  * Seed placement for nodes that arrive without coordinates.
@@ -156,3 +156,28 @@ function resolveAnchor(
 
 /** Snap a human-supplied position to the grid, keeping drags and agent seeds aligned. */
 export const snapPosition = (p: Position): Position => ({ x: snap(p.x), y: snap(p.y) });
+
+/**
+ * Which face of `from` a line to `to` should leave by.
+ *
+ * The same rule the canvas used to apply per frame, moved to the server so it runs *once*,
+ * at creation. Recomputing it on every render is what made an arrow jump from one point to
+ * another as a box was dragged past a diagonal.
+ *
+ * Each delta is weighted by the other dimension rather than compared raw: a 900px-wide node
+ * is exited through its side long before the 45° line says so, and raw deltas put the arrow
+ * on the top face of a box it is sitting beside.
+ */
+export function sideTowards(from: GraphNode, to: GraphNode): EdgeSide {
+  const a = nodeSize(from);
+  const b = nodeSize(to);
+  // Positions are guaranteed after `normalize`, but the type is not — an unplaced node
+  // reads as the origin rather than throwing, since a side is always answerable.
+  const fp = from.position ?? { x: 0, y: 0 };
+  const tp = to.position ?? { x: 0, y: 0 };
+  const dx = tp.x + b.w / 2 - (fp.x + a.w / 2);
+  const dy = tp.y + b.h / 2 - (fp.y + a.h / 2);
+
+  if (Math.abs(dx) * a.h > Math.abs(dy) * a.w) return dx > 0 ? 'right' : 'left';
+  return dy > 0 ? 'bottom' : 'top';
+}

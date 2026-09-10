@@ -848,7 +848,7 @@ test('the agent sees the arrow, since it is meaning rather than layout', () => {
  * present means a human put it there and it must survive everything that is not a move of
  * that very end.
  */
-test('add_edge_at pins both ends, and add_edge pins neither', () => {
+test('add_edge_at takes the human\'s points; add_edge is seeded from the layout', () => {
   let g = build();
   g = applyOp(g, { op: 'add_node', label: 'Cache' });
   g = applyOp(g, {
@@ -860,12 +860,39 @@ test('add_edge_at pins both ends, and add_edge pins neither', () => {
   });
 
   const pinned = g.edges.find((e) => e.id === 'database->cache')!;
-  assert.equal(pinned.sourceSide, 'right');
+  assert.equal(pinned.sourceSide, 'right', 'a drawn edge keeps exactly what was drawn');
   assert.equal(pinned.targetSide, 'left');
 
-  const computed = g.edges.find((e) => e.id === 'auth-service->database')!;
-  assert.equal(computed.sourceSide, undefined, 'add_edge must not pin anything');
-  assert.equal(computed.targetSide, undefined);
+  // Seeded, not left blank: an edge with no points has to be worked out per frame, and an
+  // arrow that is recomputed is an arrow that jumps as the boxes move.
+  const seeded = g.edges.find((e) => e.id === 'auth-service->database')!;
+  assert.ok(seeded.sourceSide, 'add_edge seeds a point rather than leaving it open');
+  assert.ok(seeded.targetSide);
+});
+
+test('a seeded point faces the other node', () => {
+  let g = emptyGraph();
+  g = applyOp(g, { op: 'add_node_at', label: 'Left', position: { x: 0, y: 0 } });
+  g = applyOp(g, { op: 'add_node_at', label: 'Right', position: { x: 600, y: 0 } });
+  g = applyOp(g, { op: 'add_edge', source: 'left', target: 'right' });
+
+  assert.equal(g.edges[0].sourceSide, 'right', 'out of the face pointing at the target');
+  assert.equal(g.edges[0].targetSide, 'left');
+});
+
+test('loading a file seeds points for edges that have none', () => {
+  const raw = JSON.stringify({
+    rev: 3,
+    nodes: [
+      { id: 'a', position: { x: 0, y: 0 }, data: { label: 'A' } },
+      { id: 'b', position: { x: 0, y: 400 }, data: { label: 'B' } },
+    ],
+    edges: [{ id: 'a->b', source: 'a', target: 'b' }],
+  });
+
+  const loaded = normalize(parse(raw));
+  assert.equal(loaded.edges[0].sourceSide, 'bottom', 'B is below A');
+  assert.equal(loaded.edges[0].targetSide, 'top');
 });
 
 test('attach_edge re-points one end and "auto" releases it', () => {
@@ -909,11 +936,10 @@ test('a pinned end survives a reconnect only if that end did not move', () => {
   });
 
   assert.equal(moved.edges[0].sourceSide, 'right', 'the end that stayed keeps its point');
-  assert.equal(
-    moved.edges[0].targetSide,
-    undefined,
-    'the end that moved to another node goes back to automatic',
-  );
+  // Re-seeded rather than cleared: the point was chosen for a node this end no longer
+  // touches, and leaving it blank would put the edge back to being recomputed.
+  assert.ok(moved.edges[0].targetSide, 'the end that moved gets a fresh point');
+  assert.notEqual(moved.edges[0].targetSide, undefined);
 });
 
 test('pinned points round-trip through the file, and are canvas-only', () => {
