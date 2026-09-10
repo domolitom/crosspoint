@@ -7,6 +7,13 @@ import { LabelInput } from './LabelInput';
 import { SubcanvasPanel, type LensStep } from './SubcanvasPanel';
 import { useGraph } from './useGraph';
 
+/** The three things an edge can say about direction, in the order they read. */
+const ARROWS = [
+  ['forward', '→', 'points at the target'],
+  ['both', '↔', 'both directions'],
+  ['none', '—', 'no direction'],
+] as const;
+
 export default function App() {
   const {
     graph,
@@ -160,6 +167,16 @@ export default function App() {
     [trail, openLens],
   );
 
+  // Arrowheads apply to edges only — there is nothing a node end could mean — so the
+  // control is disabled unless the selection holds at least one.
+  const applyArrow = useCallback(
+    (arrow: 'forward' | 'both' | 'none') => {
+      const target = selection.diagram || undefined;
+      for (const id of selection.edges) sendOp({ op: 'update_edge', id, arrow }, target);
+    },
+    [selection, sendOp],
+  );
+
   // Colour applies to the whole selection, so colouring three things emits three narrow
   // ops — the same shape as a multi-node drag. Nodes and edges take different ops, and a
   // mixed selection gets both.
@@ -254,6 +271,30 @@ export default function App() {
           >
             ×
           </button>
+        </div>
+
+        <div
+          className="arrows"
+          role="group"
+          aria-label="Arrowheads"
+          title={
+            selection.edges.length
+              ? 'Which ends of the selected edge carry an arrowhead'
+              : 'Select an edge first'
+          }
+        >
+          {ARROWS.map(([arrow, glyph, label]) => (
+            <button
+              key={arrow}
+              type="button"
+              className="arrow-option"
+              aria-label={label}
+              disabled={selection.edges.length === 0}
+              onClick={() => applyArrow(arrow)}
+            >
+              {glyph}
+            </button>
+          ))}
         </div>
 
         <span className="spacer" />

@@ -562,3 +562,30 @@ body,
 .react-flow__node.selected .react-flow__handle {
   opacity: 1;
 }
+
+/* Scoped under `.bar` for the same reason the swatches are: a bare `.arrow-option` loses
+   on specificity to the toolbar's own button rule and every option renders as a grey pill. */
+.bar .arrows {
+  display: flex;
+  gap: 2px;
+}
+
+.bar .arrow-option {
+  min-width: 26px;
+  padding: 2px 6px;
+  font-size: 14px;
+  line-height: 1.1;
+  border: 1px solid var(--line, #d7dae0);
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.bar .arrow-option:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.bar .arrow-option:not(:disabled):hover {
+  background: #f2f4f7;
+}

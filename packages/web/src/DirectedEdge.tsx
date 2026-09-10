@@ -84,6 +84,7 @@ export function DirectedEdge({
   targetPosition,
   label,
   markerEnd,
+  markerStart,
   style,
   data,
   selected,
@@ -136,7 +137,7 @@ export function DirectedEdge({
 
   return (
     <>
-      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={stroke} />
+      <BaseEdge id={id} path={path} markerEnd={markerEnd} markerStart={markerStart} style={stroke} />
       <EdgeLabelRenderer>
         {data?.editing ? (
           /* Editing sits exactly where the label sits, so the text does not appear to move

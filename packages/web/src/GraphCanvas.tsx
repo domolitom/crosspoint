@@ -36,6 +36,14 @@ import { LabelInput } from './LabelInput';
 const edgeTypes = { directed: DirectedEdge };
 const nodeTypes = { default: CanvasNode };
 
+/** An arrowhead in the edge's own colour — React Flow bakes the colour into the marker. */
+const marker = (color: string) => ({
+  type: MarkerType.ArrowClosed,
+  width: 18,
+  height: 18,
+  color,
+});
+
 export interface GraphCanvasProps {
   graph: Graph | null;
   /** Which diagram every op from this canvas targets. */
@@ -161,8 +169,10 @@ function GraphCanvasInner({
           // would silently deselect the edge the user just clicked.
           selected: previous.get(edge.id)?.selected,
           // The model has always been directed — source and target are not interchangeable.
-          // The arrowhead just makes the canvas say what the data already says.
-          markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: stroke },
+          // The arrowhead just makes the canvas say what the data already says. `arrow`
+          // overrides that: `both` for a mutual dependency, `none` for a plain association.
+          markerEnd: edge.arrow === 'none' ? undefined : marker(stroke),
+          markerStart: edge.arrow === 'both' ? marker(stroke) : undefined,
           style: { stroke, strokeWidth: 1.5 },
           // One constant, not a per-edge sign: the normal is computed from the
           // source→target axis, which already points the opposite way for the reverse
