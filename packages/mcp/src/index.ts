@@ -85,6 +85,15 @@ const colorSchemaFor = (subject: 'node' | 'edge') =>
 const colorSchema = colorSchemaFor('node');
 const edgeColorSchema = colorSchemaFor('edge');
 
+/** Which ends carry an arrowhead. A statement about the relationship, not decoration. */
+const arrowSchema = z
+  .enum(['forward', 'both', 'none'])
+  .describe(
+    'Which ends of the edge carry an arrowhead. "forward" (the default) points at the ' +
+      'target. "both" says the two depend on each other — one line rather than two ' +
+      'opposing edges. "none" is a plain association with no direction.',
+  );
+
 const ok = (payload: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
 });
@@ -263,10 +272,11 @@ server.registerTool(
       target: z.string().describe('Id of the node the edge enters.'),
       label: z.string().optional().describe('Optional text on the edge.'),
       color: edgeColorSchema.optional(),
+      arrow: arrowSchema.optional(),
     },
   },
-  async ({ source, target, label, color }) =>
-    ok(await applyOp({ op: 'add_edge', source, target, label, color })),
+  async ({ source, target, label, color, arrow }) =>
+    ok(await applyOp({ op: 'add_edge', source, target, label, color, arrow })),
 );
 
 server.registerTool(
@@ -321,8 +331,9 @@ server.registerTool(
   {
     title: 'Update edge',
     description:
-      "Change an edge's label or colour. Both are optional, so pass only what you mean " +
-      'to change — setting a colour leaves the label alone and vice versa.',
+      "Change an edge's label, colour, or which ends carry an arrowhead. All are " +
+      'optional, so pass only what you mean to change — setting a colour leaves the ' +
+      'label alone and vice versa.',
     inputSchema: {
       id: z.string().describe('Id of the edge to change.'),
       label: z
@@ -330,9 +341,11 @@ server.registerTool(
         .optional()
         .describe('New label text; pass an empty string to clear it.'),
       color: edgeColorSchema.optional(),
+      arrow: arrowSchema.optional(),
     },
   },
-  async ({ id, label, color }) => ok(await applyOp({ op: 'update_edge', id, label, color })),
+  async ({ id, label, color, arrow }) =>
+    ok(await applyOp({ op: 'update_edge', id, label, color, arrow })),
 );
 
 server.registerTool(
