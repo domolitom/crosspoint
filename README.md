@@ -143,6 +143,11 @@ The agent gets sixteen tools, and not one of them can express a coordinate.
 - **diagrams** — `create_diagram`, `switch_diagram`, `create_subdiagram`
 - **tidying** — `align`, `distribute`, which name an intent the server resolves into geometry
 
+Colour and arrowheads are the two presentational things on that surface, and both are there
+because they are statements: amber says "needs attention", and `arrow: both` says two things
+depend on each other rather than one calling the other. Each is a validated name, refused at
+the door if invented, and its default is stored as absence rather than a sentinel.
+
 **There is deliberately no tool for moving a node.** Coordinates are absent from every write
 tool — not discouraged, not approval-gated, architecturally missing from the schema. An agent
 cannot express a position, so it cannot overwrite one. New nodes are placed by the server

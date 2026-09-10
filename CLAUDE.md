@@ -106,6 +106,12 @@ refused at the door. `"none"` deletes the key instead of storing a sentinel.
 Colour is tagged `structural`, so it survives `withoutLayout`. Filtering it as noise would
 throw away the message.
 
+`arrow` on an edge — `forward` (default), `both`, `none` — is on the surface for the same
+reason and follows the same three rules: validated at the door, stored by name, and its
+default stored as absence rather than a sentinel. It says something colour cannot. `both` is
+one edge meaning mutual dependency rather than two opposing edges, and `none` is a plain
+association, which the model had no way to express before.
+
 ### Placement seeds, it does not re-solve
 
 `placeNode` only ever positions the *new* node and never moves existing ones. Running a global
