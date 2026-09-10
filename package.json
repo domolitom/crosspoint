@@ -39,7 +39,7 @@
     "prebuild": "node scripts/preflight.js",
     "build": "npm run build -w @crosspoint/core && npm run build -w @crosspoint/server && npm run build -w @crosspoint/mcp && npm run build -w @crosspoint/web",
     "pretest": "node scripts/preflight.js",
-    "test": "npm run build && npm run test -w @crosspoint/core && npm run test -w @crosspoint/server && npm run test -w @crosspoint/e2e",
+    "test": "npm run build && npm run test -w @crosspoint/core && npm run test -w @crosspoint/server && npm run test -w @crosspoint/mcp && npm run test -w @crosspoint/e2e",
     "typecheck": "tsc --build",
     "prepack": "npm run build"
   },

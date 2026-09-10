@@ -2,6 +2,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { ensureServer } from './autostart.js';
 
 /**
  * Crosspoint MCP server — the agent's door into the graph.
@@ -23,8 +24,22 @@ const SERVER = process.env.CROSSPOINT_SERVER ?? 'http://localhost:4000';
 
 const server = new McpServer({ name: 'crosspoint', version: '0.1.0' });
 
+/**
+ * A refused connection is the one failure worth acting on rather than reporting: the human
+ * has not started the canvas yet. Start it and retry once, so the first tool call works
+ * instead of teaching the agent that Crosspoint is broken.
+ */
+async function fetchOrStart(path: string, init?: RequestInit) {
+  try {
+    return await fetch(`${SERVER}${path}`, init);
+  } catch {
+    await ensureServer(SERVER, { allowed: process.env.CROSSPOINT_NO_SPAWN === undefined });
+    return await fetch(`${SERVER}${path}`, init);
+  }
+}
+
 async function call(path: string, init?: RequestInit) {
-  const res = await fetch(`${SERVER}${path}`, init);
+  const res = await fetchOrStart(path, init);
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error((body as { error?: string }).error ?? `${res.status} ${res.statusText}`);
