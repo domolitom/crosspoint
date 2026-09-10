@@ -1,7 +1,6 @@
 import {
   BaseEdge,
   EdgeLabelRenderer,
-  getBezierPath,
   Position,
   useInternalNode,
   type Edge,
@@ -21,14 +20,10 @@ export type DirectedEdgeData = {
   /** This edge's assigned palette colour, if any. Absent means uncoloured. */
   color?: NodeColor;
   /**
-   * Perpendicular shift for this edge, in pixels.
+   * How far apart to bow a reciprocal pair, in pixels.
    *
-   * A→B and B→A now choose the same pair of faces, so without this they would be one line
-   * with two labels stacked on it. Shifting both ends and the label along the normal keeps
-   * the pair readable.
-   *
-   * Note this cannot be done with `pathOptions.curvature`: React Flow ignores curvature
-   * whenever the handles already face each other, using `0.5 * distance` instead.
+   * A→B and B→A choose the same two faces, so without this they are one line carrying two
+   * labels. It bends the curve; the ends stay on their connection points.
    */
   offset?: number;
   /** True while this edge's label is being edited in place. */
@@ -72,6 +67,43 @@ function anchorOf(from: Rect, to: Rect): Anchor {
     : { x: fx, y: from.y, position: Position.Top };
 }
 
+/** Which way is out of a face. Used to leave the box perpendicular to the side it starts on. */
+const OUTWARD: Record<Position, readonly [number, number]> = {
+  [Position.Top]: [0, -1],
+  [Position.Right]: [1, 0],
+  [Position.Bottom]: [0, 1],
+  [Position.Left]: [-1, 0],
+};
+
+/**
+ * A curve between two connection points.
+ *
+ * `bow` separates a reciprocal pair by displacing the *control* points, never the ends: an
+ * end that drifts off its face lands on a corner, which is the bug this replaced. The normal
+ * already reverses for the opposite edge, so one positive constant pulls the two apart.
+ */
+function curve(from: Anchor, to: Anchor, bow: number) {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.hypot(dx, dy) || 1;
+  // Capped, or distant nodes are joined by a balloon rather than a line.
+  const reach = Math.min(length * 0.35, 140);
+
+  const [ox, oy] = OUTWARD[from.position];
+  const [tx, ty] = OUTWARD[to.position];
+  const nx = (-dy / length) * bow;
+  const ny = (dx / length) * bow;
+
+  const c1 = { x: from.x + ox * reach + nx, y: from.y + oy * reach + ny };
+  const c2 = { x: to.x + tx * reach + nx, y: to.y + ty * reach + ny };
+
+  return [
+    `M ${from.x},${from.y} C ${c1.x},${c1.y} ${c2.x},${c2.y} ${to.x},${to.y}`,
+    (from.x + 3 * c1.x + 3 * c2.x + to.x) / 8,
+    (from.y + 3 * c1.y + 3 * c2.y + to.y) / 8,
+  ] as const;
+}
+
 export function DirectedEdge({
   id,
   source,
@@ -102,26 +134,7 @@ export function DirectedEdge({
           to: { x: targetX, y: targetY, position: targetPosition },
         };
 
-  const offset = data?.offset ?? 0;
-  const dx = ends.to.x - ends.from.x;
-  const dy = ends.to.y - ends.from.y;
-  const length = Math.hypot(dx, dy) || 1;
-  // Unit normal to the source→target axis.
-  const nx = -dy / length;
-  const ny = dx / length;
-
-  const [path, labelX, labelY] = getBezierPath({
-    sourceX: ends.from.x + nx * offset,
-    sourceY: ends.from.y + ny * offset,
-    targetX: ends.to.x + nx * offset,
-    targetY: ends.to.y + ny * offset,
-    sourcePosition: ends.from.position,
-    targetPosition: ends.to.position,
-  });
-
-  // The path is already shifted, so its midpoint carries the label with it.
-  const x = labelX;
-  const y = labelY;
+  const [path, x, y] = curve(ends.from, ends.to, data?.offset ?? 0);
 
   /*
    * Selection thickens the line but never repaints a coloured one.
