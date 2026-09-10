@@ -552,3 +552,63 @@ test('the header sets which ends of a selected edge carry an arrowhead', async (
     return (await path.getAttribute('marker-end')) === null;
   });
 });
+
+/*
+ * The point you drew an edge onto is the point it stays on.
+ *
+ * Recomputing it made the arrow jump between points as a box was dragged past a diagonal,
+ * which is the complaint that produced #15's follow-up. Drawing pins both ends, and moving
+ * a node afterwards must not move them.
+ */
+test('an edge drawn onto a point stays on it when the node moves', async () => {
+  const seedIn = await freshDiagram('pinned');
+  const a = await seedIn('Pin A', 0, 0);
+  // Close together on purpose. `fitView` zooms *in* on a diagram this empty — at scale 2 a
+  // 400px gap puts the second node's point past the right edge of the window, and the drag
+  // then ends on nothing. Same hazard as the resize suite's, in the opposite direction.
+  const b = await seedIn('Pin B', 240, 0);
+
+  // Seeding changes what `fitView` fits, so the viewport moves again after the nodes land.
+  // These handles are measured in screen pixels, so a box taken mid-animation is ~hundreds
+  // of pixels off and the drag starts on empty canvas.
+  await settleViewport(stack.page);
+
+  // Draw from A's *top* — the side the automatic rule would never choose for a neighbour
+  // sitting directly to the right, so a jump back to `right` is unmistakable.
+  const from = await stack.page
+    .locator(`.react-flow__node[data-id="${a}"] .react-flow__handle-top`)
+    .boundingBox();
+  const to = await stack.page
+    .locator(`.react-flow__node[data-id="${b}"] .react-flow__handle-top`)
+    .boundingBox();
+  assert.ok(from && to, 'both points must be present to drag between them');
+
+  await dragMouse(
+    stack.page,
+    { x: from.x + from.width / 2, y: from.y + from.height / 2 },
+    { x: to.x + to.width / 2, y: to.y + to.height / 2 },
+  );
+
+  const edge = await until('the edge to reach the server', async () => {
+    const graph = await stack.graph('pinned');
+    return graph.edges.find((e: any) => e.source === a && e.target === b) ?? null;
+  });
+  assert.equal(edge.sourceSide, 'top', 'drawing pins the end it was drawn from');
+  assert.equal(edge.targetSide, 'top');
+
+  await until('the edge to render on the pinned point', async () =>
+    Math.abs((await pathStart(edge.id)).y - (await flowRect(a)).y) < 1,
+  );
+
+  // Now drag A well below B. The automatic rule would swing this to another face; pinned,
+  // it must not budge off the top.
+  const centre = await nodeCentre(stack.page, a);
+  await dragMouse(stack.page, centre, { x: centre.x + 60, y: centre.y + 320 });
+  await until('the move to reach the server', async () => {
+    const node = await stack.graph('pinned').then((g: any) => g.nodes.find((n: any) => n.id === a));
+    // Screen pixels, halved by the scale-2 fit — so this threshold is well under the drag.
+    return node.position.y > 100;
+  });
+
+  assertOnPoint(await pathStart(edge.id), points(await flowRect(a)).top, 'after moving the node');
+});
