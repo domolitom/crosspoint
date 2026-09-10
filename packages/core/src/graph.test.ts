@@ -842,3 +842,85 @@ test('the agent sees the arrow, since it is meaning rather than layout', () => {
   g = applyOp(g, { op: 'update_edge', id: 'auth-service->database', arrow: 'both' });
   assert.equal((structuralView(g).edges[0] as { arrow?: string }).arrow, 'both');
 });
+
+/*
+ * Pinned connection points. Absent means computed, which is what a generated graph wants;
+ * present means a human put it there and it must survive everything that is not a move of
+ * that very end.
+ */
+test('add_edge_at pins both ends, and add_edge pins neither', () => {
+  let g = build();
+  g = applyOp(g, { op: 'add_node', label: 'Cache' });
+  g = applyOp(g, {
+    op: 'add_edge_at',
+    source: 'database',
+    target: 'cache',
+    sourceSide: 'right',
+    targetSide: 'left',
+  });
+
+  const pinned = g.edges.find((e) => e.id === 'database->cache')!;
+  assert.equal(pinned.sourceSide, 'right');
+  assert.equal(pinned.targetSide, 'left');
+
+  const computed = g.edges.find((e) => e.id === 'auth-service->database')!;
+  assert.equal(computed.sourceSide, undefined, 'add_edge must not pin anything');
+  assert.equal(computed.targetSide, undefined);
+});
+
+test('attach_edge re-points one end and "auto" releases it', () => {
+  const id = 'auth-service->database';
+  let g = applyOp(build(), { op: 'attach_edge', id, source: 'bottom', target: 'top' });
+  assert.equal(g.edges[0].sourceSide, 'bottom');
+
+  g = applyOp(g, { op: 'attach_edge', id, source: 'left' });
+  assert.equal(g.edges[0].sourceSide, 'left');
+  assert.equal(g.edges[0].targetSide, 'top', 'the untouched end keeps its point');
+
+  g = applyOp(g, { op: 'attach_edge', id, source: 'auto' });
+  assert.equal(g.edges[0].sourceSide, undefined, 'auto releases rather than storing it');
+
+  assert.throws(() => applyOp(g, { op: 'attach_edge', id, source: 'sideways' as never }), GraphError);
+});
+
+// The same contract `move_node` keeps: asking for the state it already holds changes nothing,
+// and the caller gets the identical object back so the server can skip a rev.
+test('attaching an end where it already is returns the same graph', () => {
+  const id = 'auth-service->database';
+  const g = applyOp(build(), { op: 'attach_edge', id, source: 'right' });
+  assert.equal(applyOp(g, { op: 'attach_edge', id, source: 'right' }), g);
+});
+
+test('a pinned end survives a reconnect only if that end did not move', () => {
+  let g = build();
+  g = applyOp(g, { op: 'add_node', label: 'Cache' });
+  g = applyOp(g, {
+    op: 'attach_edge',
+    id: 'auth-service->database',
+    source: 'right',
+    target: 'left',
+  });
+
+  const moved = applyOp(g, {
+    op: 'reconnect_edge',
+    id: 'auth-service->database',
+    source: 'auth-service',
+    target: 'cache',
+  });
+
+  assert.equal(moved.edges[0].sourceSide, 'right', 'the end that stayed keeps its point');
+  assert.equal(
+    moved.edges[0].targetSide,
+    undefined,
+    'the end that moved to another node goes back to automatic',
+  );
+});
+
+test('pinned points round-trip through the file, and are canvas-only', () => {
+  let g = build();
+  g = applyOp(g, { op: 'attach_edge', id: 'auth-service->database', source: 'right' });
+
+  assert.equal(parse(serialize(g)).edges[0].sourceSide, 'right');
+  assert.ok(isLayoutOp({ op: 'attach_edge', id: 'x', source: 'top' }), 'never on the agent surface');
+  assert.ok(isLayoutOp({ op: 'add_edge_at', source: 'a', target: 'b', sourceSide: 'top', targetSide: 'top' }));
+});

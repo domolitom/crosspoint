@@ -118,7 +118,15 @@ export const withActor = (entries: LogEntry[], actor: ActorFilter): LogEntry[] =
  *
  * The question here is only ever "did this change what exists, or just where it sits".
  */
-const REARRANGING_OPS = new Set(['move_node', 'resize_node', 'align', 'distribute']);
+const REARRANGING_OPS = new Set([
+  'move_node',
+  'resize_node',
+  'align',
+  'distribute',
+  // Only changes which point a line touches. `add_edge_at` is deliberately absent: it
+  // brings an edge into existence, which is always part of the message.
+  'attach_edge',
+]);
 
 export const kindOf = (op: LoggedOp): ChangeKind =>
   op.op === 'external_edit'
@@ -151,6 +159,8 @@ export function describeOp(op: LoggedOp): string {
         (op.label ? ` ${quote(op.label)}` : '') +
         (op.color && op.color !== 'none' ? ` coloured ${op.color}` : '')
       );
+    case 'add_edge_at':
+      return `+ edge ${op.source} → ${op.target}` + (op.label ? ` ${quote(op.label)}` : '');
     case 'reconnect_edge':
       return `~ edge ${op.id} now ${op.source} → ${op.target}`;
     case 'update_node': {
@@ -183,6 +193,8 @@ export function describeOp(op: LoggedOp): string {
       // gone, and that is not inferable from a node count.
       return op.replace ? `${shape}, replacing what was there` : shape;
     }
+    case 'attach_edge':
+      return `re-pointed ${op.id}`;
     case 'move_node':
       return `moved ${op.id}`;
     // No pixel values, for the same reason `moved` omits coordinates: a summary carries what

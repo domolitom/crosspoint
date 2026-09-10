@@ -5,9 +5,12 @@ import { slugify, uniqueId } from './ids.js';
 import { placeNode, snapPosition, snapSize } from './placement.js';
 import {
   EDGE_ARROWS,
+  EDGE_SIDES,
   NODE_COLORS,
   type ColorInput,
   type EdgeArrow,
+  type EdgeSide,
+  type SideInput,
   type Graph,
   type GraphEdge,
   type GraphNode,
@@ -67,6 +70,16 @@ function requireArrow(arrow: unknown): void {
   if (typeof arrow !== 'string' || !(EDGE_ARROWS as readonly string[]).includes(arrow)) {
     throw new GraphError(
       `Unknown arrow "${String(arrow)}" — expected one of ${EDGE_ARROWS.join(', ')}`,
+    );
+  }
+}
+
+/** Reject an unknown side, the same door `requireColor` and `requireArrow` guard. */
+function requireSide(side: unknown): void {
+  if (side === undefined || side === 'auto') return;
+  if (typeof side !== 'string' || !(EDGE_SIDES as readonly string[]).includes(side)) {
+    throw new GraphError(
+      `Unknown side "${String(side)}" — expected one of ${EDGE_SIDES.join(', ')}, or "auto"`,
     );
   }
 }
@@ -191,6 +204,15 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       if (existing.label !== undefined) reconnected.label = existing.label;
       if (existing.color !== undefined) reconnected.color = existing.color;
       if (existing.arrow !== undefined) reconnected.arrow = existing.arrow;
+      // A pinned point only means something for the node it was pinned to. The end that
+      // moved is now on a different box, so it goes back to automatic; the end that stayed
+      // put keeps the point the human chose for it.
+      if (existing.source === op.source && existing.sourceSide !== undefined) {
+        reconnected.sourceSide = existing.sourceSide;
+      }
+      if (existing.target === op.target && existing.targetSide !== undefined) {
+        reconnected.targetSide = existing.targetSide;
+      }
 
       return {
         ...next,
@@ -208,6 +230,52 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
         nodes: graph.nodes.map((n) =>
           n.id === op.id ? { ...n, data: mergeNodeData(n.data, op) } : n,
         ),
+      };
+    }
+
+    case 'add_edge_at': {
+      requireNode(graph, op.source, 'source');
+      requireNode(graph, op.target, 'target');
+      requireSide(op.sourceSide);
+      requireSide(op.targetSide);
+      const taken = new Set(graph.edges.map((e) => e.id));
+      const id = uniqueId(`${op.source}->${op.target}`, taken);
+      const edge: GraphEdge = {
+        id,
+        source: op.source,
+        target: op.target,
+        sourceSide: op.sourceSide,
+        targetSide: op.targetSide,
+      };
+      if (op.label) edge.label = op.label;
+      return { ...next, edges: [...graph.edges, edge] };
+    }
+
+    case 'attach_edge': {
+      const existing = graph.edges.find((e) => e.id === op.id);
+      if (!existing) throw new GraphError(`No edge with id "${op.id}"`);
+      requireSide(op.source);
+      requireSide(op.target);
+
+      const attached: GraphEdge = { ...existing };
+      // `auto` releases the pin rather than storing a sentinel, matching `none` for colour.
+      if (op.source === 'auto') delete attached.sourceSide;
+      else if (op.source !== undefined) attached.sourceSide = op.source as EdgeSide;
+      if (op.target === 'auto') delete attached.targetSide;
+      else if (op.target !== undefined) attached.targetSide = op.target as EdgeSide;
+
+      // Nothing changed means nothing to record — the same contract `move_node` keeps when
+      // a drag lands where the node already was.
+      if (
+        attached.sourceSide === existing.sourceSide &&
+        attached.targetSide === existing.targetSide
+      ) {
+        return graph;
+      }
+
+      return {
+        ...next,
+        edges: graph.edges.map((e) => (e.id === op.id ? attached : e)),
       };
     }
 

@@ -64,6 +64,22 @@ export const EDGE_ARROWS = ['forward', 'both', 'none'] as const;
 
 export type EdgeArrow = (typeof EDGE_ARROWS)[number];
 
+/**
+ * Which of a node's four connection points an edge end is attached to.
+ *
+ * Absent means "work it out from where the boxes are", which is what a generated graph
+ * wants. Present means a human put it there, and it stays — the same bargain a node's
+ * `size` strikes, and for the same reason: recomputing it made the arrow jump between
+ * points mid-drag, which is not useful to anyone.
+ *
+ * `auto` is not a stored value. It is what an op passes to release the pin.
+ */
+export const EDGE_SIDES = ['top', 'right', 'bottom', 'left'] as const;
+
+export type EdgeSide = (typeof EDGE_SIDES)[number];
+
+export type SideInput = EdgeSide | 'auto';
+
 export interface NodeData {
   label: string;
   /** Absent means uncoloured. An uncoloured node carries no colour key at all. */
@@ -100,6 +116,9 @@ export interface GraphEdge {
    * rely on it, and `arrow: "both"` says what an arrowhead flag never would.
    */
   arrow?: Exclude<EdgeArrow, 'forward'>;
+  /** Pinned connection points. Absent on either end means that end is still computed. */
+  sourceSide?: EdgeSide;
+  targetSide?: EdgeSide;
 }
 
 export interface Graph {
@@ -236,10 +255,34 @@ export type LayoutOp =
   | { op: 'move_node'; id: string; position: Position }
   | { op: 'add_node_at'; label: string; position: Position; data?: Record<string, unknown> }
   /** Pin a node's size. Pixels, so canvas-only — an agent cannot express one. */
-  | { op: 'resize_node'; id: string; size: Size };
+  | { op: 'resize_node'; id: string; size: Size }
+  /**
+   * Draw an edge onto specific connection points.
+   *
+   * The canvas twin of `add_edge`, exactly as `add_node_at` is the twin of `add_node`: a
+   * human dragging from one point to another has said where the ends go, and an agent has
+   * not. Keeping the sides off `add_edge` is what stops an agent expressing them, and doing
+   * it in one op is what keeps drawing an edge a single undo step.
+   */
+  | {
+      op: 'add_edge_at';
+      source: string;
+      target: string;
+      sourceSide: EdgeSide;
+      targetSide: EdgeSide;
+      label?: string;
+    }
+  /** Move an end to a different point on the same node, or release it back to automatic. */
+  | { op: 'attach_edge'; id: string; source?: SideInput; target?: SideInput };
 
 export type GraphOp = StructuralOp | LayoutOp;
 
-const LAYOUT_OPS = new Set(['move_node', 'add_node_at', 'resize_node']);
+const LAYOUT_OPS = new Set([
+  'move_node',
+  'add_node_at',
+  'resize_node',
+  'add_edge_at',
+  'attach_edge',
+]);
 
 export const isLayoutOp = (op: GraphOp): op is LayoutOp => LAYOUT_OPS.has(op.op);
