@@ -75,8 +75,14 @@ export function LabelInput({
    */
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      input.current?.focus();
-      input.current?.select();
+      const field = input.current;
+      if (!field) return;
+      field.focus();
+      // Select-all is right for a name — you open it to retype the thing. It is wrong for a
+      // body, where the usual reason to open it is to add a line, and one keystroke on a
+      // full selection would wipe everything already written.
+      if (multiline) field.setSelectionRange(field.value.length, field.value.length);
+      else field.select();
     });
     return () => cancelAnimationFrame(frame);
   }, []);
@@ -94,6 +100,20 @@ export function LabelInput({
     },
     [value, initial, allowEmpty, onCommit, onCancel],
   );
+
+  /*
+   * Grow the box to its rendered content.
+   *
+   * `rows` counts typed lines, not wrapped ones, so one long paragraph asked for a single
+   * row and then scrolled inside it. `scrollHeight` is measured after layout, so it is the
+   * only number that knows how the text actually wrapped.
+   */
+  useEffect(() => {
+    const field = input.current;
+    if (!multiline || !field) return;
+    field.style.height = 'auto';
+    field.style.height = `${field.scrollHeight}px`;
+  }, [value, multiline]);
 
   /*
    * Shared by both fields. Every key event stops here.
@@ -130,9 +150,7 @@ export function LabelInput({
     onBlur: () => finish(true),
   };
 
-  if (multiline) {
-    return <textarea {...shared} rows={Math.min(12, Math.max(2, value.split('\n').length))} />;
-  }
+  if (multiline) return <textarea {...shared} rows={1} />;
 
   const field = (
     <input

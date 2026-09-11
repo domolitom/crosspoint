@@ -683,3 +683,12 @@ body,
 .react-flow__node-default.cp-sized:has(.cp-node-body-input) {
   justify-content: flex-start;
 }
+
+/* In a node whose size a human pinned, the editor fills the room they made for it rather
+   than hugging its text. `flex-grow` still applies over the autosized inline height, which
+   acts as the basis. */
+.react-flow__node-default.cp-sized .cp-node-body-input {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
