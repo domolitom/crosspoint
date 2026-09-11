@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
  * An inline text field for naming things on the canvas.
@@ -36,6 +36,13 @@ export interface LabelInputProps {
    * remove text you no longer want on an arrow.
    */
   allowEmpty?: boolean;
+  /**
+   * Render a `<textarea>` and let Enter insert a newline.
+   *
+   * Commit then moves to Cmd/Ctrl+Enter or clicking away, because a multi-line field cannot
+   * have Enter mean both "new line" and "done". Escape still cancels.
+   */
+  multiline?: boolean;
   /** Called with the trimmed value. Never called with an empty string or an unchanged one. */
   onCommit: (label: string) => void;
   onCancel: () => void;
@@ -48,11 +55,12 @@ export function LabelInput({
   className,
   autoWidth = false,
   allowEmpty = false,
+  multiline = false,
   onCommit,
   onCancel,
 }: LabelInputProps) {
   const [value, setValue] = useState(initial);
-  const input = useRef<HTMLInputElement>(null);
+  const input = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   /** Guards against blur firing a second time after Enter or Escape already resolved it. */
   const done = useRef(false);
 
@@ -87,26 +95,54 @@ export function LabelInput({
     [value, initial, allowEmpty, onCommit, onCancel],
   );
 
+  /*
+   * Shared by both fields. Every key event stops here.
+   *
+   * React Flow listens for Backspace and Delete to remove the selection, and for space to
+   * pan. Without this, typing would delete the node being edited — a destructive failure
+   * with no error surface to reveal it.
+   */
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    event.stopPropagation();
+    if (event.key === 'Escape') finish(false);
+    else if (event.key === 'Enter') {
+      // In a body, Enter is a newline and only a modifier means "done". Anywhere else it
+      // is the commit, as it has always been.
+      if (!multiline) finish(true);
+      else if (event.metaKey || event.ctrlKey) finish(true);
+    }
+  };
+
+  const shared = {
+    ref: input as never,
+    className: className ?? 'cp-label-input',
+    'aria-label': ariaLabel,
+    placeholder,
+    value,
+    onChange: (event: { target: { value: string } }) => setValue(event.target.value),
+    onKeyDown,
+    onKeyUp: (event: React.KeyboardEvent) => event.stopPropagation(),
+    onKeyPress: (event: React.KeyboardEvent) => event.stopPropagation(),
+    // A click into the field must not select or drag the node underneath it.
+    onMouseDown: (event: React.MouseEvent) => event.stopPropagation(),
+    onClick: (event: React.MouseEvent) => event.stopPropagation(),
+    onDoubleClick: (event: React.MouseEvent) => event.stopPropagation(),
+    onBlur: () => finish(true),
+  };
+
+  if (multiline) {
+    return <textarea {...shared} rows={Math.min(12, Math.max(2, value.split('\n').length))} />;
+  }
+
   const field = (
     <input
-      ref={input}
+      ref={input as React.RefObject<HTMLInputElement>}
       className={className ?? 'cp-label-input'}
       aria-label={ariaLabel}
       placeholder={placeholder}
       value={value}
       onChange={(event) => setValue(event.target.value)}
-      /*
-       * Every key event stops here.
-       *
-       * React Flow listens for Backspace and Delete to remove the selection, and for space
-       * to pan. Without this, typing a label would delete the node being renamed — a
-       * destructive failure with no error surface to reveal it.
-       */
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if (event.key === 'Enter') finish(true);
-        else if (event.key === 'Escape') finish(false);
-      }}
+      onKeyDown={onKeyDown}
       onKeyUp={(event) => event.stopPropagation()}
       onKeyPress={(event) => event.stopPropagation()}
       // A click into the field must not select or drag the node underneath it.

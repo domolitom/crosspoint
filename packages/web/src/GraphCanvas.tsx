@@ -105,7 +105,8 @@ function GraphCanvasInner({
    */
   const [draft, setDraft] = useState<{ screen: Position; flow: Position } | null>(null);
   /** Id of the node whose label is being edited in place. */
-  const [editing, setEditing] = useState<string | null>(null);
+  /** Which node is being edited, and which of its two fields. */
+  const [editing, setEditing] = useState<{ id: string; field: 'label' | 'body' } | null>(null);
   const [editingEdge, setEditingEdge] = useState<string | null>(null);
 
   const emit = useCallback((op: GraphOp) => sendOp(op, diagram), [sendOp, diagram]);
@@ -349,8 +350,11 @@ function GraphCanvasInner({
     [emit],
   );
 
-  const onNodeDoubleClick = useCallback((_: unknown, node: Node) => {
-    setEditing(node.id);
+  const onNodeDoubleClick = useCallback((event: React.MouseEvent, node: Node) => {
+    // Double-clicking the detail text edits the detail; anywhere else on the node edits the
+    // name. Without this the only way back into a body would be to retype the whole node.
+    const onBody = (event.target as HTMLElement)?.closest?.('.cp-node-body');
+    setEditing({ id: node.id, field: onBody ? 'body' : 'label' });
   }, []);
 
   const onEdgeDoubleClick = useCallback((_: unknown, edge: Edge) => {
@@ -444,6 +448,16 @@ function GraphCanvasInner({
     [emit],
   );
 
+  const commitBody = useCallback(
+    (id: string, body: string) => {
+      // `allowEmpty` is on, so an emptied field arrives here as '' — which clears the key
+      // rather than storing a blank string. Removing detail has to be possible.
+      emit({ op: 'update_node', id, body });
+      setEditing(null);
+    },
+    [emit],
+  );
+
   const commitResize = useCallback(
     (id: string, size: { w: number; h: number }, position: { x: number; y: number }) => {
       emit({ op: 'resize_node', id, size });
@@ -474,21 +488,31 @@ function GraphCanvasInner({
               commitResize(node.id, size, position),
           },
         };
-        return node.id === editing
+        const withBody = {
+          ...withResize,
+          data: {
+            ...withResize.data,
+            onEditBody: () => setEditing({ id: node.id, field: 'body' }),
+          },
+        };
+
+        return node.id === editing?.id
           ? {
-              ...withResize,
+              ...withBody,
               // React Flow's drag would fight the text caret.
               draggable: false,
               data: {
-                ...withResize.data,
-                editing: true,
+                ...withBody.data,
+                editing: editing.field,
                 onRename: (label: string) => commitRename(node.id, label),
                 onCancelRename: () => setEditing(null),
+                onBodyCommit: (body: string) => commitBody(node.id, body),
+                onBodyCancel: () => setEditing(null),
               },
             }
-          : withResize;
+          : withBody;
       }),
-    [nodes, editing, commitRename, commitResize],
+    [nodes, editing, commitRename, commitBody, commitResize],
   );
 
   const displayEdges = useMemo(

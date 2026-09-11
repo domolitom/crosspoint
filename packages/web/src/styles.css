@@ -589,3 +589,79 @@ body,
 .bar .arrow-option:not(:disabled):hover {
   background: #f2f4f7;
 }
+
+/* A node is its name plus, optionally, detail beneath it. The label stays centred — it is
+   the node's identity — while the body is left-aligned, because centred prose is unreadable
+   the moment it runs past one line. */
+.react-flow__node .cp-node-body {
+  display: block;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #e6e9ee;
+  color: #4b5563;
+  font-size: 12px;
+  line-height: 17px;
+  text-align: left;
+  /* The whole point: honour the line breaks the author typed. */
+  white-space: pre-wrap;
+}
+
+.react-flow__node .cp-node-body-input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 4px 6px;
+  border: 1px solid #93a4bd;
+  border-radius: 4px;
+  color: #374151;
+  font: inherit;
+  font-size: 12px;
+  line-height: 17px;
+  text-align: left;
+  resize: none;
+}
+
+/* Offered on hover only, exactly like the lens badge on a node with no subcanvas: an idle
+   canvas should not advertise every action it supports. Sits on the other corner so the two
+   never collide. */
+.react-flow__node .cp-body-add {
+  position: absolute;
+  top: -9px;
+  left: -9px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #cbd2dc;
+  border-radius: 50%;
+  background: #fff;
+  color: #6b7280;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.react-flow__node:hover .cp-body-add {
+  opacity: 1;
+}
+
+/* A node carrying detail is taller than a label; keep the auto cap from squeezing prose into
+   a 320px column while still stopping a single long word running away. */
+.react-flow__node-default:has(.cp-node-body),
+.react-flow__node-default:has(.cp-node-body-input) {
+  max-width: 420px;
+}
+
+/* Only for a body holding a pipe table. Prose is worse in monospace, so this is switched on
+   by content rather than applied to every body. */
+.react-flow__node .cp-node-body.cp-node-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: pre;
+  overflow-x: auto;
+}

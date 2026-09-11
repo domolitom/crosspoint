@@ -20,17 +20,34 @@ export type CanvasNodeData = {
   subcanvas?: string;
   /** Absent in the panel at maximum depth, where lensing further is refused. */
   onLens?: () => void;
-  /** True while this node's label is being edited in place. */
-  editing?: boolean;
   /** Called with the new label. Not called when the label is unchanged. */
   onRename?: (label: string) => void;
   onCancelRename?: () => void;
+  /** Multi-line detail under the label. Absent means the node is just its name. */
+  body?: string;
+  /** Which field is open for editing, if either. */
+  editing?: 'label' | 'body';
+  /** Called with the new body. An empty string removes it. */
+  onBodyCommit?: (body: string) => void;
+  onBodyCancel?: () => void;
+  /** Opens the body editor. Absent on a canvas that cannot edit. */
+  onEditBody?: () => void;
   /** Called once when a resize gesture ends, never per frame. */
   onResize?: (size: { w: number; h: number }, position: { x: number; y: number }) => void;
   /** Floor for the resizer, mirroring the core clamp. */
   minWidth?: number;
   minHeight?: number;
 };
+
+/**
+ * Does this body hold a pipe table?
+ *
+ * Columns only line up in a monospace font, and a table in proportional text is unreadable —
+ * but so is prose in monospace, so this switches rather than picking one for everything.
+ * Deliberately a rendering detail: the body stays plain text, with nothing new in the model
+ * and nothing new on the agent's surface.
+ */
+const isTable = (body: string) => body.split('\n').some((line) => line.trimStart().startsWith('|'));
 
 /**
  * A connection point per side, every one of them a `source`.
@@ -69,7 +86,7 @@ export function CanvasNode({ data, selected }: NodeProps<Node<CanvasNodeData>>) 
       {SIDES.map(([id, position]) => (
         <Handle key={id} id={id} type="source" position={position} />
       ))}
-      {data.editing ? (
+      {data.editing === 'label' ? (
         <LabelInput
           initial={data.label}
           ariaLabel="Node label"
@@ -80,6 +97,42 @@ export function CanvasNode({ data, selected }: NodeProps<Node<CanvasNodeData>>) 
         />
       ) : (
         <span className="cp-node-label">{data.label}</span>
+      )}
+
+      {data.editing === 'body' ? (
+        <LabelInput
+          initial={data.body ?? ''}
+          placeholder="detail…"
+          ariaLabel="Node body"
+          className="cp-node-body-input"
+          multiline
+          allowEmpty
+          onCommit={(body) => data.onBodyCommit?.(body)}
+          onCancel={() => data.onBodyCancel?.()}
+        />
+      ) : (
+        data.body && (
+          <span className={isTable(data.body) ? 'cp-node-body cp-node-mono' : 'cp-node-body'}>
+            {data.body}
+          </span>
+        )
+      )}
+      {data.onEditBody && !data.body && data.editing === undefined && (
+        <button
+          type="button"
+          className="cp-body-add"
+          title="Add detail to this node"
+          aria-label={`Add detail to ${data.label}`}
+          // Same reasoning as the lens badge: swallow the press so adding detail does not
+          // also select the node and start a drag.
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            data.onEditBody?.();
+          }}
+        >
+          ≡
+        </button>
       )}
       {data.onLens && (
         <button
