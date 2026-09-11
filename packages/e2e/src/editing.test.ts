@@ -5,6 +5,7 @@ import {
   API,
   fixtures,
   openCanvas,
+  settleViewport,
   startStack,
   until,
   type Stack,
@@ -265,4 +266,76 @@ test('double-clicking an edge does not also create a node', async () => {
     before,
     'the pane double-click handler must not fire for an edge',
   );
+});
+
+/*
+ * Multi-line detail on a node.
+ *
+ * Three things have to hold at once and only a browser can prove them: Enter inserts a
+ * newline instead of committing, Backspace edits the text instead of deleting the node
+ * React Flow has selected, and the line breaks survive the round trip to the server.
+ */
+test('a node body takes multiple lines, and Enter does not commit', async () => {
+  const seedIn = await freshDiagram('body');
+  const id = await seedIn('Detailed', 0, 0);
+  await settleViewport(stack.page);
+
+  const node = `.react-flow__node[data-id="${id}"]`;
+  await stack.page.locator(node).hover();
+  await stack.page.locator(`${node} .cp-body-add`).click();
+
+  const field = `${node} .cp-node-body-input`;
+  await awaitFocus(field);
+
+  await stack.page.keyboard.type('first line');
+  await stack.page.keyboard.press('Enter');
+  await stack.page.keyboard.type('second line');
+
+  // Backspace inside the field must edit text, not delete the node under it.
+  await stack.page.keyboard.press('Backspace');
+  assert.equal(await stack.page.locator(node).count(), 1, 'the node must survive Backspace');
+
+  // Still nothing on the server: Enter is a newline here, not a commit.
+  const midway = await stack.graph('body');
+  assert.equal(midway.nodes[0].data.body, undefined, 'Enter must not have committed');
+
+  await stack.page.keyboard.press('Meta+Enter');
+
+  const saved = await until('the body to reach the server', async () => {
+    const graph = await stack.graph('body');
+    return graph.nodes[0].data.body ?? null;
+  });
+  assert.equal(saved, 'first line\nsecond lin', 'both lines, and the Backspace applied');
+
+  await until('the body to render', async () =>
+    (await stack.page.locator(`${node} .cp-node-body`).innerText()).includes('second lin'),
+  );
+});
+
+test('double-clicking the body edits the body, not the label', async () => {
+  const seedIn = await freshDiagram('body-edit');
+  const id = await seedIn('Titled', 0, 0);
+  await stack.op({ op: 'update_node', id, body: 'original detail' }, 'body-edit');
+
+  const node = `.react-flow__node[data-id="${id}"]`;
+  await until('the body to render', async () =>
+    (await stack.page.locator(`${node} .cp-node-body`).count()) > 0,
+  );
+  await settleViewport(stack.page);
+
+  await stack.page.locator(`${node} .cp-node-body`).dblclick();
+  await awaitFocus(`${node} .cp-node-body-input`);
+
+  // The label field must not have opened — that is the bug this guards.
+  assert.equal(await stack.page.locator(`${node} .cp-node-input`).count(), 0);
+
+  await stack.page.keyboard.press('Meta+A');
+  await stack.page.keyboard.type('replaced');
+  await stack.page.keyboard.press('Meta+Enter');
+
+  const saved = await until('the new body to reach the server', async () => {
+    const graph = await stack.graph('body-edit');
+    return graph.nodes[0].data.body === 'replaced' ? graph.nodes[0] : null;
+  });
+  assert.equal(saved.data.label, 'Titled', 'the label must be untouched');
 });
