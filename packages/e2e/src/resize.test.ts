@@ -230,3 +230,54 @@ test('a resized node keeps its name above its body', async () => {
   );
   assert.ok(box.width > 420, `the pinned width must survive the body cap, got ${box.width}`);
 });
+
+/*
+ * Text that outgrows a pinned box grows the box.
+ *
+ * A pinned size used to be a fixed height, so adding a line to a node you had already sized
+ * either clipped it or hid it behind a scrollbar. It is a minimum now: never smaller than
+ * you made it, never smaller than its text.
+ */
+test('a pinned node grows to fit text and never shrinks below its pinned size', async () => {
+  const seedIn = await freshDiagram('grow-box');
+  const id = await seedIn('Grows', 0, 0);
+  await stack.op({ op: 'resize_node', id, size: { w: 300, h: 90 } }, 'grow-box');
+
+  const node = `.react-flow__node[data-id="${id}"]`;
+  const heightOf = async () =>
+    await stack.page.$eval(node, (el) => (el as HTMLElement).offsetHeight);
+
+  await until('the pinned size to render', async () => (await heightOf()) >= 88);
+  const pinned = await heightOf();
+
+  await stack.op(
+    { op: 'update_node', id, body: 'one\ntwo\nthree\nfour\nfive\nsix\nseven\neight' },
+    'grow-box',
+  );
+
+  const grown = await until('the node to grow past its pinned height', async () => {
+    const height = await heightOf();
+    return height > pinned + 20 ? height : null;
+  });
+
+  // The body has to sit *inside* the box. `scrollHeight` is no use here — the node is
+  // `overflow: visible`, so text that does not fit spills out in plain sight rather than
+  // being scrolled, and scrollHeight reports padding differences either way.
+  const fit = await stack.page.$eval(node, (el) => {
+    const box = el as HTMLElement;
+    const body = box.querySelector('.cp-node-body') as HTMLElement;
+    return { bottom: body.offsetTop + body.offsetHeight, inner: box.clientHeight };
+  });
+  assert.ok(
+    fit.bottom <= fit.inner,
+    `the body runs to ${fit.bottom}px inside a ${fit.inner}px box — text is spilling out`,
+  );
+
+  // And taking the text away leaves the pinned height standing — a floor, not a fit.
+  await stack.op({ op: 'update_node', id, body: '' }, 'grow-box');
+  const back = await until('the node to settle back', async () => {
+    const height = await heightOf();
+    return height < grown - 20 ? height : null;
+  });
+  assert.ok(back >= pinned - 2, `shrank below the pinned ${pinned}px to ${back}px`);
+});
