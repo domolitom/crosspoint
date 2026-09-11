@@ -143,6 +143,10 @@ The agent gets sixteen tools, and not one of them can express a coordinate.
 - **diagrams** — `create_diagram`, `switch_diagram`, `create_subdiagram`
 - **tidying** — `align`, `distribute`, which name an intent the server resolves into geometry
 
+A node carries a one-line `label` and optional multi-line `body` — the name and the detail.
+They are separate fields because ids are derived from labels, and because a long body in the
+change feed would bury everything else in it. A pipe table in a body renders as a table.
+
 Colour and arrowheads are the two presentational things on that surface, and both are there
 because they are statements: amber says "needs attention", and `arrow: both` says two things
 depend on each other rather than one calling the other. Each is a validated name, refused at

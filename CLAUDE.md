@@ -112,6 +112,22 @@ default stored as absence rather than a sentinel. It says something colour canno
 one edge meaning mutual dependency rather than two opposing edges, and `none` is a plain
 association, which the model had no way to express before.
 
+### A node's name and its text are different fields
+
+`label` is one line and `body` is many, and the split is not cosmetic. **Ids are slugified
+from the label**, so a label carrying line breaks produces an id nobody can refer to. The
+change feed is the second reason: `describeOp` names a body change and its line count but
+never quotes it, because a twenty-line body inlined into one entry buries every other entry
+in the feed.
+
+`body` is structural — what a node says is the message — so it reaches the agent's read and
+write surface, like colour. An empty string clears the key rather than storing `""`.
+
+A pipe table in a body renders in monospace, switched on by content in `CanvasNode`. That is
+deliberately a *rendering* decision: columns only line up in monospace and prose only reads
+in proportional, and doing it by content keeps tables working with nothing new in the model
+and nothing new on the agent's surface.
+
 ### Placement seeds, it does not re-solve
 
 `placeNode` only ever positions the *new* node and never moves existing ones. Running a global
@@ -221,6 +237,12 @@ the normal already reverses for the opposite edge, so negating it too cancels ou
 but placement runs on the server with no DOM, so it estimates. A shared width constant made
 wide nodes overlap by 110px. The regression guard is the mixed short/long-label overlap test —
 a test using only short labels will not catch it.
+
+**An estimate must measure the longest line, not the total length.** `estimateNodeWidth`
+summed every character, which is right for one line and badly wrong for many — a body of ten
+short lines asked for a box wide enough to hold all of them end to end. It splits on `\n`
+now, takes the widest line for width, and counts wrapped lines per line for height. The
+server has no DOM, so this estimate is all placement has.
 
 **Everything measuring a node must go through `nodeSize`.** A hand-resized node carries a
 `size` and is *wider than its label estimate*, so any code still estimating reasons about a
