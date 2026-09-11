@@ -950,3 +950,53 @@ test('pinned points round-trip through the file, and are canvas-only', () => {
   assert.ok(isLayoutOp({ op: 'attach_edge', id: 'x', source: 'top' }), 'never on the agent surface');
   assert.ok(isLayoutOp({ op: 'add_edge_at', source: 'a', target: 'b', sourceSide: 'top', targetSide: 'top' }));
 });
+
+/*
+ * A node's body: multi-line detail under the name.
+ *
+ * Kept out of the label because node ids are slugified from labels — a label with line
+ * breaks produces an id nobody can refer to.
+ */
+test('a node carries a body, and an empty one clears it', () => {
+  let g = applyOp(emptyGraph(), { op: 'add_node', label: 'Auth', body: 'one\ntwo\nthree' });
+  assert.equal(g.nodes[0].id, 'auth', 'the id comes from the label, not the body');
+  assert.equal(g.nodes[0].data.body, 'one\ntwo\nthree');
+
+  g = applyOp(g, { op: 'update_node', id: 'auth', label: 'Auth service' });
+  assert.equal(g.nodes[0].data.body, 'one\ntwo\nthree', 'relabelling must not drop it');
+
+  g = applyOp(g, { op: 'update_node', id: 'auth', body: '' });
+  assert.equal(g.nodes[0].data.body, undefined, 'empty clears the key rather than storing ""');
+});
+
+test('a body is sized by its longest line, not its total length', () => {
+  const long = 'short\n' + 'x'.repeat(40);
+  // Summing the characters would ask for a box wide enough for all 46 at once.
+  assert.ok(
+    estimateNodeWidth(long) < estimateNodeWidth('x'.repeat(46)),
+    'width must follow the widest line',
+  );
+  assert.ok(
+    estimateNodeHeight('a\nb\nc') > estimateNodeHeight('a'),
+    'every explicit break adds a line',
+  );
+});
+
+test('placement clears a node by its whole footprint, body included', () => {
+  const tall = { id: 'tall', position: { x: 0, y: 0 }, data: { label: 'Tall', body: 'a\nb\nc\nd\ne\nf' } };
+  const flat = { id: 'flat', position: { x: 0, y: 0 }, data: { label: 'Tall' } };
+  assert.ok(nodeSize(tall).h > nodeSize(flat).h, 'a body makes the box taller');
+
+  // The guard that matters: the next node must be placed clear of the *rendered* box, not
+  // of a one-line estimate of it.
+  const next = placeNode([tall], { label: 'Next' });
+  assert.ok(
+    next.y >= nodeSize(tall).h || next.x >= nodeSize(tall).w,
+    `placed at ${JSON.stringify(next)}, inside a ${JSON.stringify(nodeSize(tall))} box`,
+  );
+});
+
+test('the agent sees the body — it is what the node says', () => {
+  const g = applyOp(emptyGraph(), { op: 'add_node', label: 'Auth', body: 'detail' });
+  assert.equal((structuralView(g).nodes[0] as { body?: string }).body, 'detail');
+});

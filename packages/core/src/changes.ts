@@ -148,6 +148,7 @@ export function describeOp(op: LoggedOp): string {
     case 'add_node':
       return (
         `+ node ${quote(op.label)}` +
+        (op.body ? ' with a body' : '') +
         (op.near ? ` near ${op.near}` : '') +
         (op.color && op.color !== 'none' ? ` coloured ${op.color}` : '')
       );
@@ -168,6 +169,10 @@ export function describeOp(op: LoggedOp): string {
       // knowing what happened and having to go and diff the graph itself.
       const parts: string[] = [];
       if (op.label) parts.push(`relabelled ${quote(op.label)}`);
+      // Named, never quoted: a body can be twenty lines, and inlining it would bury every
+      // other entry in the feed. A reader who cares re-reads the node.
+      if (op.body === '') parts.push('body cleared');
+      else if (op.body !== undefined) parts.push(`body rewritten (${op.body.split('\n').length} lines)`);
       if (op.color === 'none') parts.push('colour cleared');
       else if (op.color) parts.push(`coloured ${op.color}`);
       if (op.subcanvas === 'none') parts.push('subcanvas unlinked');

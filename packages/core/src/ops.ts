@@ -47,6 +47,7 @@ function mergeNodeData(
   current: NodeData,
   change: {
     label?: string;
+    body?: string;
     color?: ColorInput;
     subcanvas?: string | 'none';
     data?: Record<string, unknown>;
@@ -57,6 +58,10 @@ function mergeNodeData(
   // untouched in the file instead of carrying a marker into every diff.
   if (change.color === 'none') delete data.color;
   else if (change.color !== undefined) data.color = change.color;
+  // An empty body removes the key rather than storing `""`, the same clearing rule `label`
+  // follows on an edge — a node with no detail should read as untouched in the file.
+  if (change.body === '') delete data.body;
+  else if (change.body !== undefined) data.body = change.body;
   if (change.subcanvas === 'none') delete data.subcanvas;
   else if (change.subcanvas !== undefined) data.subcanvas = change.subcanvas;
   return data;
@@ -128,7 +133,11 @@ export function normalize(graph: Graph): Graph {
       // hand-written `size` rides along in the spread for exactly the same reason: opening
       // a file must not resize what someone pinned by hand.
       position:
-        node.position ?? placeNode(nodes, { label: String(node.data?.label ?? node.id) }),
+        node.position ??
+        placeNode(nodes, {
+          label: String(node.data?.label ?? node.id),
+          body: typeof node.data?.body === 'string' ? node.data.body : undefined,
+        }),
     });
   }
 
@@ -172,7 +181,7 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       const id = uniqueId(slugify(op.label), taken);
       const node: GraphNode = {
         id,
-        position: placeNode(graph.nodes, { near: op.near, label: op.label }),
+        position: placeNode(graph.nodes, { near: op.near, label: op.label, body: op.body }),
         data: mergeNodeData({ label: op.label }, op),
       };
       return { ...next, nodes: [...graph.nodes, node] };

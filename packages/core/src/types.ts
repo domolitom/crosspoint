@@ -81,7 +81,19 @@ export type EdgeSide = (typeof EDGE_SIDES)[number];
 export type SideInput = EdgeSide | 'auto';
 
 export interface NodeData {
+  /**
+   * The node's name. One line, deliberately: ids are slugified from it, so a label with
+   * line breaks in it produces ids nobody can refer to. Detail goes in `body`.
+   */
   label: string;
+  /**
+   * Free multi-line text under the label. Absent means the node is just its name.
+   *
+   * Structural, like colour: what a node says is the message, not where it sits. Kept
+   * apart from `label` so the change feed stays readable — a twenty-line body inlined into
+   * `~ node x relabelled "..."` buries every other entry in the feed.
+   */
+  body?: string;
   /** Absent means uncoloured. An uncoloured node carries no colour key at all. */
   color?: NodeColor;
   /**
@@ -178,6 +190,8 @@ export type StructuralOp =
       op: 'add_node';
       label: string;
       near?: string;
+      /** Multi-line detail. An empty string clears it. */
+      body?: string;
       color?: ColorInput;
       data?: Record<string, unknown>;
     }
@@ -199,6 +213,8 @@ export type StructuralOp =
        * Colour is structural, not layout: recolouring destroys no spatial work, so an
        * agent setting it cannot damage an arrangement the way a coordinate could.
        */
+      /** Multi-line detail. An empty string clears it. */
+      body?: string;
       color?: ColorInput;
       /** Link this node to a diagram holding its detail. `none` unlinks without deleting. */
       subcanvas?: string | 'none';

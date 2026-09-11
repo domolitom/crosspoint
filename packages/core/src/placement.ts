@@ -34,16 +34,38 @@ const GAP = 30;
 const snap = (n: number) => Math.round(n / GRID) * GRID;
 const clamp = (n: number) => Math.min(MAX_NODE_WIDTH, Math.max(MIN_NODE_WIDTH, n));
 
-/** What `width: fit-content` clamped to [MIN, MAX] would produce for this label. */
-export function estimateNodeWidth(label: string): number {
-  return clamp(Math.ceil((label?.length ?? 0) * CHAR_ADVANCE) + PADDING_X);
+/**
+ * What `width: fit-content` clamped to [MIN, MAX] would produce for this text.
+ *
+ * Measured on the *longest line*, not the total length: text with explicit breaks is as wide
+ * as its widest line, and summing it would ask for a box several times too wide. The server
+ * has no DOM, so this estimate is all placement has — and a wrong one puts nodes on top of
+ * each other, which is a bug this repo has already paid for once.
+ */
+export function estimateNodeWidth(text: string): number {
+  const longest = Math.max(0, ...String(text ?? '').split('\n').map((line) => line.length));
+  return clamp(Math.ceil(longest * CHAR_ADVANCE) + PADDING_X);
 }
 
-/** Taller when the label wraps, which it does once the width hits the max. */
-export function estimateNodeHeight(label: string): number {
-  const usable = estimateNodeWidth(label) - PADDING_X;
-  const lines = Math.max(1, Math.ceil(((label?.length ?? 0) * CHAR_ADVANCE) / usable));
-  return NODE_HEIGHT + (lines - 1) * LINE_HEIGHT;
+/** Taller for every explicit break, and for every line long enough to wrap. */
+export function estimateNodeHeight(text: string): number {
+  const usable = estimateNodeWidth(text) - PADDING_X;
+  const lines = String(text ?? '')
+    .split('\n')
+    .reduce((total, line) => total + Math.max(1, Math.ceil((line.length * CHAR_ADVANCE) / usable)), 0);
+  return NODE_HEIGHT + (Math.max(1, lines) - 1) * LINE_HEIGHT;
+}
+
+/**
+ * The text a node's box has to hold: its label, plus its body when it has one.
+ *
+ * Everything estimating a node must use this rather than the label alone, or a node with
+ * twenty lines of body is placed as though it were one line tall.
+ */
+export function nodeText(node: GraphNode): string {
+  const label = String(node.data?.label ?? node.id);
+  const body = node.data?.body;
+  return typeof body === 'string' && body.length > 0 ? `${label}\n${body}` : label;
 }
 
 /**
@@ -56,8 +78,8 @@ export function estimateNodeHeight(label: string): number {
  */
 export function nodeSize(node: GraphNode): Size {
   if (node.size) return { w: node.size.w, h: node.size.h };
-  const label = String(node.data?.label ?? node.id);
-  return { w: estimateNodeWidth(label), h: estimateNodeHeight(label) };
+  const text = nodeText(node);
+  return { w: estimateNodeWidth(text), h: estimateNodeHeight(text) };
 }
 
 /** Snap a pinned size to the grid, with a floor so a node cannot be dragged to nothing. */
@@ -96,6 +118,8 @@ export interface PlacementHint {
   near?: string;
   /** Label of the node being placed, so its own width is accounted for. */
   label?: string;
+  /** Its body, if it has one — a node with detail needs a bigger clearing than its name. */
+  body?: string;
 }
 
 /**
@@ -110,7 +134,8 @@ export function placeNode(nodes: GraphNode[], hint: PlacementHint = {}): Positio
   // estimate otherwise — rather than a shared constant.
   const placed: Box[] = nodes.filter((n) => n.position != null).map((n) => boxFor(n.position!, n));
 
-  const own = { w: estimateNodeWidth(hint.label ?? ''), h: estimateNodeHeight(hint.label ?? '') };
+  const text = hint.body ? `${hint.label ?? ''}\n${hint.body}` : (hint.label ?? '');
+  const own = { w: estimateNodeWidth(text), h: estimateNodeHeight(text) };
   const anchor = resolveAnchor(placed, nodes, hint, own);
 
   // Walk a simple lattice out from the anchor until nothing overlaps.
