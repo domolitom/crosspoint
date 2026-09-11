@@ -199,6 +199,15 @@ server.registerTool(
       'new graph structure including the generated id.',
     inputSchema: {
       label: z.string().min(1).describe('Text shown on the node.'),
+      body: z
+        .string()
+        .optional()
+        .describe(
+          'Multi-line detail shown under the label. Use it for what the node needs to SAY ' +
+            'that a name cannot — a definition, a list of steps, a table written with pipes. ' +
+            'Keep the label a short name: node ids are derived from it. Pass an empty ' +
+            'string to clear.',
+        ),
       near: z
         .string()
         .optional()
@@ -206,7 +215,8 @@ server.registerTool(
       color: colorSchema.optional(),
     },
   },
-  async ({ label, near, color }) => ok(await applyOp({ op: 'add_node', label, near, color })),
+  async ({ label, body, near, color }) =>
+    ok(await applyOp({ op: 'add_node', label, body, near, color })),
 );
 
 server.registerTool(
@@ -304,11 +314,20 @@ server.registerTool(
   {
     title: 'Update node',
     description:
-      "Change a node's label, its colour, or both. Its position is untouched — neither " +
-      'relabelling nor recolouring moves a node the human has placed. Pass whichever ' +
+      "Change a node's label, its body text, its colour, or any combination. Its position " +
+      'is untouched — none of these moves a node the human has placed. Pass whichever ' +
       'fields you want to change; omitting one leaves it alone.',
     inputSchema: {
       id: z.string().describe('Id of the node to change.'),
+      body: z
+        .string()
+        .optional()
+        .describe(
+          'Multi-line detail shown under the label. Use it for what the node needs to SAY ' +
+            'that a name cannot — a definition, a list of steps, a table written with pipes. ' +
+            'Keep the label a short name: node ids are derived from it. Pass an empty ' +
+            'string to clear.',
+        ),
       label: z.string().min(1).optional().describe('New label text. Omit to keep the current one.'),
       color: colorSchema.optional(),
       subcanvas: z
@@ -322,8 +341,8 @@ server.registerTool(
       diagram: diagramParam,
     },
   },
-  async ({ id, label, color, subcanvas, diagram }) =>
-    ok(await applyOp({ op: 'update_node', id, label, color, subcanvas }, diagram)),
+  async ({ id, label, body, color, subcanvas, diagram }) =>
+    ok(await applyOp({ op: 'update_node', id, label, body, color, subcanvas }, diagram)),
 );
 
 server.registerTool(
