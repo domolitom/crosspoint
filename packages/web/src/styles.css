@@ -404,8 +404,18 @@ body,
   min-width: 0;
   max-width: none;
   display: flex;
+  /* Column, not the default row. Without this the label and the body become side-by-side
+     flex items the moment a node is resized — the name ends up *beside* its own detail. */
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+}
+
+/* The body fills the width it was given rather than shrinking to its text, so its rule and
+   its left-aligned lines still span the box a human dragged out. */
+.react-flow__node-default.cp-sized .cp-node-body,
+.react-flow__node-default.cp-sized .cp-node-body-input {
+  align-self: stretch;
 }
 
 /*
@@ -651,8 +661,8 @@ body,
 
 /* A node carrying detail is taller than a label; keep the auto cap from squeezing prose into
    a 320px column while still stopping a single long word running away. */
-.react-flow__node-default:has(.cp-node-body),
-.react-flow__node-default:has(.cp-node-body-input) {
+.react-flow__node-default:not(.cp-sized):has(.cp-node-body),
+.react-flow__node-default:not(.cp-sized):has(.cp-node-body-input) {
   max-width: 420px;
 }
 
@@ -664,4 +674,12 @@ body,
   line-height: 16px;
   white-space: pre;
   overflow-x: auto;
+}
+
+/* A pinned box with only a name centres it; one with detail starts at the top. You enlarge a
+   node to make room for its text, so text floating in the middle of the space reads as a
+   mistake. */
+.react-flow__node-default.cp-sized:has(.cp-node-body),
+.react-flow__node-default.cp-sized:has(.cp-node-body-input) {
+  justify-content: flex-start;
 }
