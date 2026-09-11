@@ -415,6 +415,21 @@ would put `+ node ""` then `~ node relabelled` into the change feed for *every* 
 noise in the one channel that exists to carry meaning — and an abandoned draft would leave
 junk behind needing a third op to remove.
 
+**`rows` counts typed lines, not wrapped ones.** One long paragraph with no breaks in it
+asked for a single row and then scrolled inside it. `LabelInput` sizes a body from
+`scrollHeight` after layout instead, which is the only number that knows where the text
+actually wrapped.
+
+**A mutation test can match its pattern and still prove nothing.** Removing the autosize left
+the growth test green, because the node it used was *pinned* — `cp-sized` stretches the
+editor by CSS and hid the defect entirely. The pattern matched; the scenario was wrong. The
+test now uses an unsized node, and removing the autosize fails it with "76px of content in
+25px". When a mutation does not fail a test, suspect the fixture before the guard.
+
+**Select-all on focus is right for a name and wrong for a body.** You open a name to retype
+it; you open a body to add to it, where one keystroke over a full selection destroys
+everything already written. `LabelInput` collapses the caret to the end when `multiline`.
+
 **An inline input focuses on the next frame, so a test must wait for focus.** `LabelInput`
 defers focus with `requestAnimationFrame` to win a race against React Flow's own handler.
 Keystrokes sent straight after the field appears go to the document instead — `keyboard.type`
