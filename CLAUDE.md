@@ -262,6 +262,19 @@ to its text and its rule stops spanning the box. And a `:has(.cp-node-body)` cap
 later in the file beats `.cp-sized` at equal specificity, silently re-capping a hand-resized
 node — scope it with `:not(.cp-sized)`.
 
+**A pinned size is a floor, not a cage.** The width is the human's call and text wraps
+inside it, but a node whose text outgrows its box grows the box — clipping what someone just
+typed is never the right answer. The canvas passes the pinned height as `min-height`, and
+`nodeSize` returns `max(pinned, estimate at the pinned width)` so the *server* agrees. If it
+did not, placement would measure the pinned height while the browser rendered something
+taller, and the next node would land on the overflow — the same overlap bug that size-aware
+placement exists to prevent, arriving by a third route.
+
+**`scrollHeight > clientHeight` does not mean "clipped" on an `overflow: visible` box.** Text
+that does not fit spills out in plain sight rather than scrolling, and the two numbers differ
+by padding regardless — it reported a 3px overflow on a node that fit perfectly. Compare the
+child's `offsetTop + offsetHeight` against the parent's `clientHeight` instead.
+
 **A pinned node size needs the CSS clamp released, not just an inline width.**
 `.react-flow__node-default` sets `max-width: 320px` to stop *auto* sizing running away on a
 long label. That cap still applies to an inline width, so a node pinned to 900px rendered at
