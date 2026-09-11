@@ -339,3 +339,46 @@ test('double-clicking the body edits the body, not the label', async () => {
   });
   assert.equal(saved.data.label, 'Titled', 'the label must be untouched');
 });
+
+/*
+ * The body editor sizes itself to the text as *rendered*, not as typed.
+ *
+ * `rows` counts typed lines, so one long wrapping paragraph asked for a single row and then
+ * scrolled inside it — a two-line window onto a box the size of a postcard. Only a browser
+ * knows where text wraps, so only a browser can catch this.
+ */
+test('the body editor grows to wrapped text instead of scrolling', async () => {
+  const seedIn = await freshDiagram('grow');
+  const id = await seedIn('Wrapper', 0, 0);
+  // One line with no breaks in it, long enough to wrap several times.
+  const long = 'oriugjeosifkv;roeijgw;ofi kdgjnskognfdgirgorisjgo and more text that wraps';
+  await stack.op({ op: 'update_node', id, body: long }, 'grow');
+  // Deliberately NOT resized. A pinned node stretches its editor to the box by CSS, which
+  // hides the defect — the autosize is what a node sizing itself to its text depends on.
+
+  const node = `.react-flow__node[data-id="${id}"]`;
+  await until('the body to render', async () =>
+    (await stack.page.locator(`${node} .cp-node-body`).count()) > 0,
+  );
+  await settleViewport(stack.page);
+
+  await stack.page.locator(`${node} .cp-node-body`).dblclick();
+  await awaitFocus(`${node} .cp-node-body-input`);
+
+  const state = await stack.page.$eval(`${node} .cp-node-body-input`, (el) => {
+    const field = el as HTMLTextAreaElement;
+    return {
+      scrollHeight: field.scrollHeight,
+      clientHeight: field.clientHeight,
+      selectionStart: field.selectionStart,
+      length: field.value.length,
+    };
+  });
+
+  assert.ok(
+    state.scrollHeight <= state.clientHeight + 2,
+    `the field must show all of its text: ${state.scrollHeight}px of content in ${state.clientHeight}px`,
+  );
+  // Select-all here would mean one keystroke wipes everything already written.
+  assert.equal(state.selectionStart, state.length, 'the caret belongs at the end, not over it');
+});
