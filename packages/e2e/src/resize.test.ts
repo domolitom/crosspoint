@@ -190,3 +190,43 @@ test('a size pinned beyond the auto cap renders at full width', async () => {
   assert.equal(measured.h, 300);
   assert.equal(measured.maxWidth, 'none', 'the auto-sizing cap must be released when pinned');
 });
+
+/*
+ * A resized node with a body must still read top to bottom.
+ *
+ * `cp-sized` makes the node a flex container so a pinned box centres its label. With no
+ * direction that defaults to `row`, and the label landed *beside* the body instead of above
+ * it. Nothing else caught it: the text was all present and correct, just in the wrong place,
+ * so only geometry can tell the difference.
+ */
+test('a resized node keeps its name above its body', async () => {
+  const seedIn = await freshDiagram('sized-body');
+  const id = await seedIn('Titled', 0, 0);
+  await stack.op(
+    { op: 'update_node', id, body: 'test again and again\ntest again and again\ntest' },
+    'sized-body',
+  );
+  // Beyond the 420px cap a body would otherwise sit under, so this also proves the pinned
+  // width survives — the same trap the 320px label cap set earlier.
+  await stack.op({ op: 'resize_node', id, size: { w: 480, h: 300 } }, 'sized-body');
+
+  const node = `.react-flow__node[data-id="${id}"]`;
+  await until('the body to render', async () =>
+    (await stack.page.locator(`${node} .cp-node-body`).count()) > 0,
+  );
+
+  const label = await stack.page.locator(`${node} .cp-node-label`).boundingBox();
+  const body = await stack.page.locator(`${node} .cp-node-body`).boundingBox();
+  const box = await stack.page.locator(node).boundingBox();
+  assert.ok(label && body && box, 'the node, its label and its body must all be measurable');
+
+  assert.ok(
+    label.y + label.height <= body.y + 1,
+    `the label must sit above the body: label ends at ${label.y + label.height}, body starts at ${body.y}`,
+  );
+  assert.ok(
+    body.width > label.width,
+    'the body should fill the pinned width rather than share a row with the label',
+  );
+  assert.ok(box.width > 420, `the pinned width must survive the body cap, got ${box.width}`);
+});
