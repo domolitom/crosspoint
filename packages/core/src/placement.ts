@@ -47,9 +47,14 @@ export function estimateNodeWidth(text: string): number {
   return clamp(Math.ceil(longest * CHAR_ADVANCE) + PADDING_X);
 }
 
-/** Taller for every explicit break, and for every line long enough to wrap. */
-export function estimateNodeHeight(text: string): number {
-  const usable = estimateNodeWidth(text) - PADDING_X;
+/**
+ * Taller for every explicit break, and for every line long enough to wrap.
+ *
+ * `width` is the box the text has to wrap inside — a pinned node wraps to the width a human
+ * dragged, not to the width its text would have asked for.
+ */
+export function estimateNodeHeight(text: string, width?: number): number {
+  const usable = (width ?? estimateNodeWidth(text)) - PADDING_X;
   const lines = String(text ?? '')
     .split('\n')
     .reduce((total, line) => total + Math.max(1, Math.ceil((line.length * CHAR_ADVANCE) / usable)), 0);
@@ -77,8 +82,17 @@ export function nodeText(node: GraphNode): string {
  * placement was written to fix, by a different route.
  */
 export function nodeSize(node: GraphNode): Size {
-  if (node.size) return { w: node.size.w, h: node.size.h };
   const text = nodeText(node);
+  if (node.size) {
+    // A pinned size is a floor, not a cage. Text that outgrows the box makes the box taller
+    // rather than being clipped — and the server has to agree, or placement measures the
+    // pinned height while the browser renders something bigger, and the next node lands on
+    // top of the overflow.
+    return {
+      w: node.size.w,
+      h: Math.max(node.size.h, estimateNodeHeight(text, node.size.w)),
+    };
+  }
   return { w: estimateNodeWidth(text), h: estimateNodeHeight(text) };
 }
 

@@ -1000,3 +1000,49 @@ test('the agent sees the body — it is what the node says', () => {
   const g = applyOp(emptyGraph(), { op: 'add_node', label: 'Auth', body: 'detail' });
   assert.equal((structuralView(g).nodes[0] as { body?: string }).body, 'detail');
 });
+
+/*
+ * A pinned size is a floor, not a cage.
+ *
+ * The server has to agree with the browser here. If placement measures the pinned height
+ * while the canvas renders something taller, the next node is dropped onto the overflow —
+ * the same overlap bug size-aware placement was written to fix, arriving by a third route.
+ */
+test('a pinned node grows when its text outgrows the box', () => {
+  const node = {
+    id: 'tall',
+    position: { x: 0, y: 0 },
+    size: { w: 300, h: 90 },
+    data: { label: 'Pinned', body: 'one\ntwo\nthree\nfour\nfive\nsix\nseven' },
+  };
+  assert.ok(
+    nodeSize(node).h > 90,
+    `expected the box to grow past its pinned 90px, got ${nodeSize(node).h}`,
+  );
+  assert.equal(nodeSize(node).w, 300, 'the pinned width is the human\'s call and stands');
+});
+
+test('a pinned node with room to spare keeps exactly the size it was given', () => {
+  const node = {
+    id: 'roomy',
+    position: { x: 0, y: 0 },
+    size: { w: 300, h: 240 },
+    data: { label: 'Pinned', body: 'one line' },
+  };
+  assert.deepEqual(nodeSize(node), { w: 300, h: 240 }, 'never shrinks to its content');
+});
+
+test('the next node is placed clear of a box that grew', () => {
+  const grown = {
+    id: 'grown',
+    position: { x: 0, y: 0 },
+    size: { w: 300, h: 60 },
+    data: { label: 'Grown', body: Array.from({ length: 12 }, (_, i) => `line ${i}`).join('\n') },
+  };
+  const { h } = nodeSize(grown);
+  const next = placeNode([grown], { label: 'Next' });
+  assert.ok(
+    next.y >= h || next.x >= 300,
+    `placed at ${JSON.stringify(next)}, inside a box ${h}px tall`,
+  );
+});
