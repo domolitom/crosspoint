@@ -251,6 +251,17 @@ smaller box than the one on screen — the 110px overlap above, returning by a s
 nodes; note the test helper `findOverlap` must measure via `nodeSize` too, or it will compare
 a 900px box against its 120px estimate and assert nothing.
 
+**`display: flex` with no direction is a row, and that put a node's name beside its body.**
+`cp-sized` made a pinned node a flex container so a resized box could centre its label —
+harmless while a node was only a label, and wrong the moment it had two children. The text
+was all present and correct, just in the wrong place, so no content assertion could see it:
+the guard in `resize.test.ts` compares the label's bottom against the body's top.
+
+The same rule has to be `flex-direction: column` *and* stretch the body, or the body shrinks
+to its text and its rule stops spanning the box. And a `:has(.cp-node-body)` cap appended
+later in the file beats `.cp-sized` at equal specificity, silently re-capping a hand-resized
+node — scope it with `:not(.cp-sized)`.
+
 **A pinned node size needs the CSS clamp released, not just an inline width.**
 `.react-flow__node-default` sets `max-width: 320px` to stop *auto* sizing running away on a
 long label. That cap still applies to an inline width, so a node pinned to 900px rendered at
