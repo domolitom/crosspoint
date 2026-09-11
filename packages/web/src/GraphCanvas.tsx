@@ -145,9 +145,11 @@ function GraphCanvasInner({
           className: [color ? `cp-color-${color}` : '', node.size ? 'cp-sized' : '']
             .filter(Boolean)
             .join(' ') || undefined,
-          // A pinned size becomes explicit dimensions; an unpinned node gets none, so the
-          // CSS `fit-content` clamp keeps sizing it from its label.
-          ...(node.size ? { style: { width: node.size.w, height: node.size.h } } : {}),
+          // A pinned size becomes an explicit width and a *minimum* height: the width is
+          // the human's call and text wraps inside it, but text that outgrows the box grows
+          // the box rather than being clipped. An unpinned node gets neither, so the CSS
+          // `fit-content` clamp keeps sizing it from its text.
+          ...(node.size ? { style: { width: node.size.w, minHeight: node.size.h } } : {}),
           selected: local?.selected,
         };
       });

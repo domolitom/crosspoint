@@ -692,3 +692,10 @@ body,
   min-height: 0;
   overflow-y: auto;
 }
+
+/* The pinned height arrives as `min-height`, so a node with more text than fits grows
+   downward instead of clipping it. Without this the resizer's own `height: 100%` assumptions
+   and the flex column would still hold the old box. */
+.react-flow__node-default.cp-sized {
+  height: auto;
+}
