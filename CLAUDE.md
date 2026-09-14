@@ -450,6 +450,15 @@ editor by CSS and hid the defect entirely. The pattern matched; the scenario was
 test now uses an unsized node, and removing the autosize fails it with "76px of content in
 25px". When a mutation does not fail a test, suspect the fixture before the guard.
 
+**A native browser binding is not `Meta` on every platform; an app handler is.** `Meta+A`
+selects all on macOS and does nothing on Linux, where select-all is Ctrl+A. A body-edit test
+pressing it passed on the author's machine and failed every CI run — the selection never
+happened, so the typed text was appended to what was already there and the assertion waited
+for a body that never arrived. Use `ControlOrMeta` for anything the *browser* interprets;
+`Meta+Enter` in the same test is fine because `LabelInput` reads `metaKey || ctrlKey` itself.
+It only began failing when the multiline caret collapsed to the end: while the field selected
+all on focus the modifier did nothing, so being wrong about it could not show.
+
 **Select-all on focus is right for a name and wrong for a body.** You open a name to retype
 it; you open a body to add to it, where one keystroke over a full selection destroys
 everything already written. `LabelInput` collapses the caret to the end when `multiline`.
