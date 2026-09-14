@@ -383,6 +383,19 @@ the OIDC exchange. The workflow omits `registry-url` for that reason; `npm publi
 to registry.npmjs.org without it. The log tell is the absence of any OIDC line, and the
 provenance statement being signed proves nothing — that uses the Actions token, not npm's.
 
+**A staged publish reads exactly like a real one, and a green job proves nothing.** A trusted
+publisher allows `npm publish`, `npm stage publish`, or both, and stage is always allowed — so
+a connection created without direct publish turns `npm publish` into a *staged* version that
+prints `+ @crosspoint/core@0.3.0` and exits 0 while the registry 404s that version. 0.3.0
+shipped that way: core was stage-only, the CLI and the MCP server were not, so `crosspoint`
+went live asking for a `@crosspoint/core@^0.3.0` that resolved to nothing. That is the failure
+the publish order exists to prevent, arriving through a door the order cannot close — ordering
+the commands does nothing if one of them does not publish. Approval needs proof of presence and
+cannot use the OIDC token, so CI can never finish it; a human approves it on npmjs.com or with
+`npm stage approve`. Keep the three connections configured alike, and check a release against
+the registry — `curl -o /dev/null -w '%{http_code}' registry.npmjs.org/<pkg>/<version>` and a
+real install in an empty directory — never against a green workflow.
+
 **A `files` entry beats `.gitignore`, which is why publishing a gitignored `dist` works.** It
 reads wrong every time. `npm pack --dry-run` is the only answer worth trusting; check it
 after touching `files`.
