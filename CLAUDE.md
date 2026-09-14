@@ -194,6 +194,26 @@ rev there was a real inconsistency, caught by the interleaving test.
 
 ## Traps, each paid for with a real bug
 
+**The state sidecar was the one file written without a rename, and a kill bricked the
+workspace.** `persistState` used a plain `writeFile`, which truncates first, so a process
+killed in that window left `graph.state.json` at zero bytes — and `OpLog.open` then died in
+`JSON.parse` on every subsequent start, guarded only for `ENOENT`. One force-kill therefore
+made a directory full of diagrams unopenable. Three things now hold: the state write goes
+through write-then-rename like a diagram, an unparseable state file is treated as absent
+because everything in it is recoverable and refusing to boot costs the human far more than a
+watermark, and **file mode rebuilds `known` from the op log** when state has none. That last
+one matters because in file mode the sidecar is the only diagram list there is, so losing it
+showed one diagram beside a directory holding sixteen. Recovery `stat`s each name the log
+mentions rather than scanning — a scan is what would adopt `package.json` — and skips a name
+with no file, which was never persisted and has nothing to recover. The inode test is the
+guard for the rename: a plain write keeps the inode, so the inode changing is the proof.
+
+**A test that leaks a server process hangs the suite instead of failing it.** A live child
+handle keeps `node --test` alive, so a test that starts its own server and asserts before
+stopping it turns one failed assertion into a run that never ends — which is what a CI
+timeout with no output looks like. It cost two 300s timeouts here before the cause was clear.
+Register the teardown with `t.after(stopServer)` so it runs on the failing path too.
+
 **File watching must watch the directory, not the file.** Atomic saves replace the file by
 rename, which swaps the inode; a file-level watch is bound to the old one and goes silent
 after the first write, including the server's own.
