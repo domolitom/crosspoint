@@ -329,7 +329,8 @@ test('double-clicking the body edits the body, not the label', async () => {
   // The label field must not have opened — that is the bug this guards.
   assert.equal(await stack.page.locator(`${node} .cp-node-input`).count(), 0);
 
-  await stack.page.keyboard.press('Meta+A');
+  // ControlOrMeta, not Meta: select-all is a native browser binding, Ctrl+A on Linux.
+  await stack.page.keyboard.press('ControlOrMeta+a');
   await stack.page.keyboard.type('replaced');
   await stack.page.keyboard.press('Meta+Enter');
 
