@@ -201,12 +201,19 @@ killed in that window left `graph.state.json` at zero bytes — and `OpLog.open`
 made a directory full of diagrams unopenable. Three things now hold: the state write goes
 through write-then-rename like a diagram, an unparseable state file is treated as absent
 because everything in it is recoverable and refusing to boot costs the human far more than a
-watermark, and **file mode rebuilds `known` from the op log** when state has none. That last
-one matters because in file mode the sidecar is the only diagram list there is, so losing it
-showed one diagram beside a directory holding sixteen. Recovery `stat`s each name the log
-mentions rather than scanning — a scan is what would adopt `package.json` — and skips a name
-with no file, which was never persisted and has nothing to recover. The inode test is the
-guard for the rename: a plain write keeps the inode, so the inode changing is the proof.
+watermark, and **file mode takes its diagram list from state and the op log together**. That
+last one matters because in file mode the sidecar is otherwise the only list there is, so
+losing it showed one diagram beside a directory holding sixteen — and `POST /api/diagrams`
+cannot rescue them, because a file on disk counts as existing and is refused. The union
+`stat`s each name the log mentions rather than scanning — a scan is what would adopt
+`package.json` — and skips a name with no file, which makes deleting the file the way to
+retire a diagram.
+
+Gating that union on `known` being *empty* was the first shape of the fix and was not enough:
+one boot on the truncated file wrote `known: ['graph']`, after which the condition could
+never hold again and the other fifteen were stranded for good. A recovery path that only
+runs while the damage is pristine is no recovery path. The inode test is the guard for the
+rename: a plain write keeps the inode, so the inode changing is the proof.
 
 **A test that leaks a server process hangs the suite instead of failing it.** A live child
 handle keeps `node --test` alive, so a test that starts its own server and asserts before
