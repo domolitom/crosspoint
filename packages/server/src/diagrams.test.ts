@@ -347,6 +347,32 @@ test('a zero-byte state file does not stop the server, and the list comes back f
   assert.equal(detail.nodes.length, 1, 'and the diagram still holds its content');
 });
 
+// The narrower version of this fix only ran when `known` was empty, so a single boot on a
+// truncated state file wrote `known: ['graph']` and stranded every other diagram for good —
+// `POST /api/diagrams` refuses a name whose file exists, so nothing could bring them back.
+test('a file-backed diagram missing from state is adopted anyway', async (t) => {
+  t.after(stopServer);
+  const fileDir = await mkdtemp(join(tmpdir(), 'crosspoint-stranded-'));
+  await startServer(join(fileDir, 'graph.json'), true);
+  await send('/api/diagrams', 'POST', { name: 'stranded' });
+  await send('/api/op', 'POST', { op: { op: 'add_node', label: 'Here' }, diagram: 'stranded' });
+  await stopServer();
+
+  // A valid state that has forgotten one diagram — what one boot on a truncated file leaves.
+  const statePath = join(fileDir, 'graph.state.json');
+  await writeFile(statePath, JSON.stringify({ watermark: 0, active: 'graph', known: ['graph'] }), 'utf8');
+
+  await startServer(join(fileDir, 'graph.json'), true);
+  const { body } = await api('/api/diagrams');
+  assert.deepEqual(
+    body.diagrams.map((d: any) => d.name),
+    ['graph', 'stranded'],
+    'the log and the file agree it exists, so state forgetting it is not the last word',
+  );
+  const { body: graph } = await api('/api/graph?diagram=stranded');
+  assert.equal(graph.nodes.length, 1, 'and its content is intact');
+});
+
 // A name in the log whose file is gone was never persisted, or has been deleted on purpose.
 // Either way there is nothing to recover, and resurrecting it would put empty diagrams in
 // the switcher — the same noise a directory scan would produce.
