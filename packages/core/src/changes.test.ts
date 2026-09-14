@@ -286,3 +286,12 @@ test('undoing a drag is filtered out of a default feed, undoing a node is not', 
   ];
   assert.deepEqual(withoutLayout(feed).map((e) => e.rev), [2]);
 });
+
+// Creating a diagram is structural: it changes what exists, and for an unedited diagram it
+// is the only record that it exists at all. The name is not repeated in the description
+// because every feed line already carries its diagram.
+test('creating a diagram is a structural change named by its entry', () => {
+  assert.equal(kindOf({ op: 'create_diagram' }), 'structural');
+  assert.equal(describeOp({ op: 'create_diagram' }), '+ diagram');
+  assert.match(summarise([entry(4, { op: 'create_diagram' })]), /plan {2}\+ diagram/);
+});

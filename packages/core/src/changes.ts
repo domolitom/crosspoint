@@ -21,6 +21,18 @@ export interface ExternalEdit {
 }
 
 /**
+ * A diagram coming into existence.
+ *
+ * Not a `GraphOp` — it changes nothing *inside* any diagram — but it belongs in the feed
+ * all the same: a diagram nobody has edited yet leaves no other trace, so the log is the
+ * only durable record that it exists. The name lives on the entry's `diagram` field like
+ * every other entry's, rather than being repeated here.
+ */
+export interface CreateDiagram {
+  op: 'create_diagram';
+}
+
+/**
  * A revert, and what it reverted.
  *
  * The target is carried rather than looked up because a bare "undo" tells a reader
@@ -32,7 +44,7 @@ export interface Revert {
   target: LoggedOp;
 }
 
-export type LoggedOp = GraphOp | ExternalEdit | Revert;
+export type LoggedOp = GraphOp | ExternalEdit | Revert | CreateDiagram;
 
 /**
  * `layout` is tagged separately so a consumer that only cares about structure can drop
@@ -218,6 +230,8 @@ export function describeOp(op: LoggedOp): string {
       return `distributed ${count(op.ids.length, 'node')} ${op.axis}ly`;
     case 'external_edit':
       return 'graph file edited outside the server';
+    case 'create_diagram':
+      return '+ diagram';
     case 'undo':
       return `undid: ${describeOp(op.target)}`;
     case 'redo':
