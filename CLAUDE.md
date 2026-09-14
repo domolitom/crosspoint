@@ -372,6 +372,17 @@ The range is a floor, `>=0.2.0`, for exactly that reason — it resolves today, 
 newest CLI, and needs no bump next time. The root's caret on `@crosspoint/core` is a workspace
 link, so it has none of this and still must be bumped by hand.
 
+**A 404 from `npm publish` means "we do not know who you are", not "no such package".**
+Trusted publishing needs three things at once: `id-token: write`, npm 11.5.1+, and a trusted
+publisher configured on *each* package at npmjs.com — repository, workflow filename, blank
+environment. Miss any one and the PUT goes out anonymous, and the registry reports an
+anonymous PUT as `404 Not Found`, which reads as the package not existing. `setup-node`'s
+`registry-url` is the subtle way to miss it: it writes `_authToken=${NODE_AUTH_TOKEN}` into
+.npmrc, and an *empty* value still reads to npm as "auth is configured", so it never starts
+the OIDC exchange. The workflow omits `registry-url` for that reason; `npm publish` defaults
+to registry.npmjs.org without it. The log tell is the absence of any OIDC line, and the
+provenance statement being signed proves nothing — that uses the Actions token, not npm's.
+
 **A `files` entry beats `.gitignore`, which is why publishing a gitignored `dist` works.** It
 reads wrong every time. `npm pack --dry-run` is the only answer worth trusting; check it
 after touching `files`.
