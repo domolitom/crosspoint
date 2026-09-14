@@ -355,11 +355,22 @@ a `nodes` array, because "something responded" is not evidence that it is ours.
 `dist/` at publish time breaks both, silently — the tarball installs and the command dies
 looking for a canvas. The `files` list in the root `package.json` therefore names those two
 paths verbatim. It also has to exclude `*.test.*`, or the server's tests ship to every user.
+Every published package needs that exclusion, not only the root — `@crosspoint/mcp` had
+`files: ["dist"]` and packed `autostart.test.js` until 0.3.0.
 
 **`npm version -ws` does not update the range a dependent asks for.** Bumping every package
 to 0.2.0 left the root's `"@crosspoint/core": "^0.1.0"` untouched, and locally it kept working
 because npm links the workspace regardless. Published, it resolves nothing — the CLI installs
 and cannot start. Bump the range by hand every time, and pack-and-install to check.
+
+**A dependency on the root package resolves from the registry, so its range cannot name the
+version being released.** `@crosspoint/mcp` depends on `crosspoint`, which is not a workspace
+member — npm downloads a published copy even in this checkout. Setting that range to `^0.3.0`
+during the bump failed `npm ci` with `ETARGET`, and `npm ci` runs *before* the publish step
+that would have created 0.3.0: the tag build died asking for the thing it was about to make.
+The range is a floor, `>=0.2.0`, for exactly that reason — it resolves today, gives a user the
+newest CLI, and needs no bump next time. The root's caret on `@crosspoint/core` is a workspace
+link, so it has none of this and still must be bumped by hand.
 
 **A `files` entry beats `.gitignore`, which is why publishing a gitignored `dist` works.** It
 reads wrong every time. `npm pack --dry-run` is the only answer worth trusting; check it
