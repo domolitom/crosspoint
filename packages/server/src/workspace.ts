@@ -192,6 +192,24 @@ export class Workspace {
         if (file.endsWith('.json') && !isSidecar(file)) names.add(file.replace(/\.json$/, ''));
       }
     }
+    /*
+     * File mode with no `known` rebuilds the list from the log.
+     *
+     * State is the only list file mode has, so losing it leaves a directory full of diagrams
+     * showing exactly one. Each candidate is checked by name — a `stat` per name the log
+     * mentions, never a scan, so this cannot adopt `package.json` the way a scan would. A
+     * name with no file is skipped: it was never persisted, so there is nothing to recover.
+     */
+    if (mode === 'file' && log.knownDiagrams.length === 0) {
+      for (const name of log.diagramsInLog) {
+        try {
+          await stat(join(dir, `${name}.json`));
+          names.add(name);
+        } catch {
+          continue;
+        }
+      }
+    }
     if (names.size === 0) names.add('graph');
 
     for (const name of [...names].sort()) {

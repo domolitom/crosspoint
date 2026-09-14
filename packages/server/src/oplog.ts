@@ -1,4 +1,4 @@
-import { appendFile, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, readFile, rename, writeFile } from 'node:fs/promises';
 
 import { kindOf, type Actor, type LogEntry, type LoggedOp } from '@crosspoint/core';
 
@@ -27,6 +27,8 @@ export class OpLog {
   /** Which diagram the canvas should show, and every diagram we have seen. */
   private activeValue?: string;
   private knownValue: string[] = [];
+  /** Makes each state temp path unique, so concurrent writers cannot clobber one another. */
+  private stateSeq = 0;
 
   private constructor(
     readonly path: string,
@@ -50,6 +52,17 @@ export class OpLog {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
 
+    /*
+     * A damaged state file must not stop the server.
+     *
+     * Everything in here is recoverable — the log holds the diagram names and the files hold
+     * the graphs — so refusing to boot costs the human their whole workspace to save a
+     * watermark. An empty file is the case that actually happened: a non-atomic write killed
+     * mid-flight left zero bytes, and `JSON.parse('')` threw on every subsequent start. One
+     * mechanism covers it, deliberately — a separate empty-string branch reads as a second
+     * line of defence and is not: tolerating `SyntaxError` already answers both, so removing
+     * the branch alone failed no test and proved nothing.
+     */
     try {
       const state = JSON.parse(await readFile(log.statePath, 'utf8')) as {
         watermark?: number;
@@ -60,7 +73,8 @@ export class OpLog {
       log.activeValue = state.active;
       log.knownValue = Array.isArray(state.known) ? state.known : [];
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && !(err instanceof SyntaxError)) throw err;
     }
 
     return log;
@@ -83,6 +97,16 @@ export class OpLog {
    */
   get knownDiagrams(): string[] {
     return this.knownValue;
+  }
+
+  /**
+   * Every diagram the log has an entry for.
+   *
+   * The recovery path for a lost `known`: the log is append-only, so it remembers names the
+   * state file no longer does.
+   */
+  get diagramsInLog(): string[] {
+    return [...new Set(this.entries.map((e) => e.diagram).filter(Boolean))];
   }
 
   get latestRev(): number {
@@ -156,6 +180,11 @@ export class OpLog {
       active: this.activeValue,
       known: this.knownValue,
     };
-    await writeFile(this.statePath, JSON.stringify(state) + '\n');
+    // Write-then-rename, exactly like a diagram. A plain write truncates first, so a process
+    // killed in that window leaves a zero-byte file — and in file mode this sidecar *is* the
+    // diagram list, so losing it hides every diagram the directory still holds.
+    const tmp = `${this.statePath}.${process.pid}.${this.stateSeq++}.tmp`;
+    await writeFile(tmp, JSON.stringify(state) + '\n', 'utf8');
+    await rename(tmp, this.statePath);
   }
 }
