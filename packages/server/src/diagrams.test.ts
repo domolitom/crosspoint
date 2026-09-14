@@ -373,6 +373,50 @@ test('a file-backed diagram missing from state is adopted anyway', async (t) => 
   assert.equal(graph.nodes.length, 1, 'and its content is intact');
 });
 
+/*
+ * The gap creation-logging closes.
+ *
+ * A diagram created and never edited left no log entry, so file mode — which may not scan —
+ * had nothing to list it from once state forgot it, and `POST /api/diagrams` refuses a name
+ * whose file exists. A real subcanvas target vanished from the switcher this way while the
+ * node linking to it still pointed at it.
+ */
+test('a diagram created and never edited survives a restart in file mode', async (t) => {
+  t.after(stopServer);
+  const fileDir = await mkdtemp(join(tmpdir(), 'crosspoint-unedited-'));
+  await startServer(join(fileDir, 'graph.json'), true);
+  await send('/api/diagrams', 'POST', { name: 'empty-detail' });
+  await stopServer();
+
+  // State forgetting it is the case that actually happened; the log is what answers.
+  await writeFile(
+    join(fileDir, 'graph.state.json'),
+    JSON.stringify({ watermark: 0, active: 'graph', known: ['graph'] }),
+    'utf8',
+  );
+
+  await startServer(join(fileDir, 'graph.json'), true);
+  const { body } = await api('/api/diagrams');
+  assert.deepEqual(body.diagrams.map((d: any) => d.name), ['empty-detail', 'graph']);
+});
+
+// Both the canvas and the MCP server create over HTTP, so this entry carries no actor — and
+// an unattributed entry is kept by every filter, including the human-only default. Claiming
+// `agent` would hide every diagram a person made in the switcher.
+test('creating a diagram is in the feed, and no filter drops it', async (t) => {
+  t.after(stopServer);
+  const fileDir = await mkdtemp(join(tmpdir(), 'crosspoint-create-feed-'));
+  await startServer(join(fileDir, 'graph.json'), true);
+  await send('/api/diagrams', 'POST', { name: 'logged' });
+
+  const { body } = await api('/api/changes');
+  const mine = body.entries.filter((e: any) => e.diagram === 'logged');
+  assert.equal(mine.length, 1, 'the default human-only feed keeps it');
+  assert.equal(mine[0].op.op, 'create_diagram');
+  assert.equal(mine[0].kind, 'structural');
+  assert.equal(mine[0].actor, undefined, 'the transport cannot attribute it, so it does not');
+});
+
 // A name in the log whose file is gone was never persisted, or has been deleted on purpose.
 // Either way there is nothing to recover, and resurrecting it would put empty diagrams in
 // the switcher — the same noise a directory scan would produce.
@@ -404,9 +448,10 @@ test('each state write replaces the file rather than truncating it', async (t) =
   const statePath = join(fileDir, 'graph.state.json');
   const before = (await stat(statePath)).ino;
   await send('/api/diagrams/active', 'PUT', { name: 'other' });
-  const after = (await stat(statePath)).ino;
 
-  assert.notEqual(after, before, 'the state file was written in place');
+  // `switchTo` does not await its own state write, so poll rather than assume it landed —
+  // asserting once passed only while nothing else was queued ahead of it.
+  await until('the state file to be replaced', async () => (await stat(statePath)).ino !== before);
   const leftovers = (await readdir(fileDir)).filter((f) => f.includes('.tmp'));
   assert.deepEqual(leftovers, [], 'no temp file is left behind');
 });

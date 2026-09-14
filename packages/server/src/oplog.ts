@@ -128,6 +128,22 @@ export class OpLog {
     return entry;
   }
 
+  /**
+   * Record something no transport can attribute.
+   *
+   * Separate from `record` so that one keeps its required `actor` — the guard that makes a
+   * new transport a compile error rather than a silent misattribution. Creating a diagram
+   * is the case: the canvas and the MCP server both reach it over HTTP, so "who" genuinely
+   * is not knowable here, and an entry with no actor is kept by every filter. Claiming
+   * `agent` would hide every diagram a human made from the default feed.
+   */
+  recordUnattributed(rev: number, op: LoggedOp, diagram: string): LogEntry {
+    const entry: LogEntry = { rev, ts: new Date().toISOString(), kind: kindOf(op), diagram, op };
+    this.entries.push(entry);
+    this.scheduleFlush();
+    return entry;
+  }
+
   /** Everything after `rev`. Does not touch the watermark — repeatable by design. */
   since(rev: number): LogEntry[] {
     return this.entries.filter((e) => e.rev > rev);

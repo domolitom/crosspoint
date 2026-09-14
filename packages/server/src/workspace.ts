@@ -420,13 +420,20 @@ export class Workspace {
     const path = join(this.dir, `${name}.json`);
     if (await exists(path)) throw new DiagramExistsError(name);
 
-    const diagram = new DiagramFile(name, path, {
-      rev: this.revValue,
-      nodes: [],
-      edges: [],
-    });
+    /*
+     * Creation takes a workspace rev and goes in the log.
+     *
+     * It is still not a `GraphOp` — nothing inside a diagram changed — but rev counts the
+     * workspace, so there is a number to give it, and the feed is the only place a diagram
+     * nobody has edited yet leaves a trace. Without the entry, such a diagram exists solely
+     * as a file, which file mode cannot list: that is how a subcanvas target went missing
+     * from the switcher while the node still linked to it.
+     */
+    const rev = this.nextRev();
+    const diagram = new DiagramFile(name, path, { rev, nodes: [], edges: [] });
     await diagram.persistNow();
     this.diagrams.set(name, diagram);
+    this.log.recordUnattributed(rev, { op: 'create_diagram' }, name);
     await this.saveState();
     // Creating does not switch: the human is still looking at whatever they were.
     this.emit({ type: 'diagrams' });

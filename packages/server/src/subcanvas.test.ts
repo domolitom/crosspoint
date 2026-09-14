@@ -100,7 +100,9 @@ test('the feed tags each entry with the diagram it happened in', async () => {
     return acc;
   }, {});
   assert.deepEqual(byDiagram.graph, ['Step 2']);
-  assert.deepEqual(byDiagram['step-2-impl'], ['Tokenize']);
+  // The subdiagram's first entry is its own creation: a diagram coming into existence is
+  // recorded, so one that nobody edits still leaves a trace the switcher can rebuild from.
+  assert.deepEqual(byDiagram['step-2-impl'], ['create_diagram', 'Tokenize']);
 });
 
 // Without this an open panel goes silently stale: it is live on a diagram that is not the

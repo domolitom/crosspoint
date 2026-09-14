@@ -94,9 +94,10 @@ const server = createServer(async (req, res) => {
       });
     }
 
-    // Diagram management is workspace-level, deliberately not a GraphOp: creating or
-    // switching changes nothing *inside* a diagram, so it has no place in the op log or
-    // in a graph's rev.
+    // Diagram management is workspace-level, deliberately not a GraphOp: neither creating
+    // nor switching changes anything *inside* a diagram. Creating is still logged — it is
+    // the only trace an unedited diagram leaves — while switching is not, since it changes
+    // nothing at all and would bury the feed.
     if (req.method === 'GET' && url.pathname === '/api/diagrams') {
       return json(res, 200, { active: store.active, diagrams: store.list() });
     }
