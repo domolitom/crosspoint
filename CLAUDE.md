@@ -194,6 +194,21 @@ rev there was a real inconsistency, caught by the interleaving test.
 
 ## Traps, each paid for with a real bug
 
+**A diagram nobody has edited leaves no trace but its file, so creation is logged.** Creating
+a diagram is still not a `GraphOp` — nothing inside any diagram changes — but it takes a
+workspace rev and goes into the log, because the log is the only durable list file mode has
+and `POST /api/diagrams` refuses a name whose file already exists. Without the entry, a
+created-but-unedited diagram is unreachable the moment state forgets it: that is how a real
+subcanvas target disappeared from the switcher while the node still linked to it. Switching
+is deliberately *not* logged — it changes nothing and would bury the feed.
+
+The entry carries **no actor**, and that is the honest answer rather than a gap: the canvas
+and the MCP server both create over HTTP, so the transport cannot tell a human in the
+switcher from an agent, and an unattributed entry is kept by every filter. Claiming `agent`
+would hide every diagram a person made from the human-only default. `recordUnattributed` is
+separate from `record` so the latter keeps its required `actor` — the guard that makes a new
+transport a compile error instead of a silent misattribution.
+
 **The state sidecar was the one file written without a rename, and a kill bricked the
 workspace.** `persistState` used a plain `writeFile`, which truncates first, so a process
 killed in that window left `graph.state.json` at zero bytes — and `OpLog.open` then died in
