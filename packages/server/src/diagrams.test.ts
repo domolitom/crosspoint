@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -309,4 +309,78 @@ test('a .json path still works and yields exactly one diagram', async () => {
   await op({ op: 'add_node', label: 'Works' });
   const { body: graph } = await api('/api/graph');
   assert.equal(graph.nodes.length, 1);
+});
+
+/*
+ * Losing the state sidecar must not lose the workspace.
+ *
+ * A non-atomic write killed mid-flight left `graph.state.json` at zero bytes, and the next
+ * start died in `JSON.parse` — so one hard kill made a directory of diagrams unopenable. In
+ * file mode that sidecar is also the only diagram list there is, which is why recovery has
+ * to come from the log rather than from a scan.
+ */
+test('a zero-byte state file does not stop the server, and the list comes back from the log', async (t) => {
+  t.after(stopServer);
+  await stopServer();
+  const fileDir = await mkdtemp(join(tmpdir(), 'crosspoint-lost-state-'));
+  // Junk the recovery path must not adopt, since it may not scan the directory.
+  await writeFile(join(fileDir, 'package.json'), '{"name":"not-a-diagram"}', 'utf8');
+  await startServer(join(fileDir, 'graph.json'), true);
+
+  await send('/api/diagrams', 'POST', { name: 'detail' });
+  await send('/api/op', 'POST', { op: { op: 'add_node', label: 'Kept' }, diagram: 'detail' });
+  await stopServer();
+
+  const statePath = join(fileDir, 'graph.state.json');
+  assert.ok((await stat(statePath)).size > 0, 'state was written before we truncate it');
+  await truncate(statePath, 0);
+
+  await startServer(join(fileDir, 'graph.json'), true);
+  const { body } = await api('/api/diagrams');
+  assert.deepEqual(
+    body.diagrams.map((d: any) => d.name),
+    ['detail', 'graph'],
+    'the log remembers what the truncated state forgot',
+  );
+
+  const { body: detail } = await api('/api/graph?diagram=detail');
+  assert.equal(detail.nodes.length, 1, 'and the diagram still holds its content');
+});
+
+// A name in the log whose file is gone was never persisted, or has been deleted on purpose.
+// Either way there is nothing to recover, and resurrecting it would put empty diagrams in
+// the switcher — the same noise a directory scan would produce.
+test('recovery skips a logged diagram whose file is gone', async (t) => {
+  t.after(stopServer);
+  const fileDir = await mkdtemp(join(tmpdir(), 'crosspoint-lost-file-'));
+  await startServer(join(fileDir, 'graph.json'), true);
+  await send('/api/diagrams', 'POST', { name: 'scratch' });
+  await send('/api/op', 'POST', { op: { op: 'add_node', label: 'Gone' }, diagram: 'scratch' });
+  await stopServer();
+
+  await rm(join(fileDir, 'scratch.json'));
+  await truncate(join(fileDir, 'graph.state.json'), 0);
+
+  await startServer(join(fileDir, 'graph.json'), true);
+  const { body } = await api('/api/diagrams');
+  assert.deepEqual(body.diagrams.map((d: any) => d.name), ['graph']);
+});
+
+// Write-then-rename, not truncate-then-write: the rename is what makes a reader — or a kill
+// — unable to observe a half-written file. A plain `writeFile` keeps the same inode, so the
+// inode changing is the proof the temp path is being used.
+test('each state write replaces the file rather than truncating it', async (t) => {
+  t.after(stopServer);
+  const fileDir = await mkdtemp(join(tmpdir(), 'crosspoint-state-atomic-'));
+  await startServer(join(fileDir, 'graph.json'), true);
+  await send('/api/diagrams', 'POST', { name: 'other' });
+
+  const statePath = join(fileDir, 'graph.state.json');
+  const before = (await stat(statePath)).ino;
+  await send('/api/diagrams/active', 'PUT', { name: 'other' });
+  const after = (await stat(statePath)).ino;
+
+  assert.notEqual(after, before, 'the state file was written in place');
+  const leftovers = (await readdir(fileDir)).filter((f) => f.includes('.tmp'));
+  assert.deepEqual(leftovers, [], 'no temp file is left behind');
 });
