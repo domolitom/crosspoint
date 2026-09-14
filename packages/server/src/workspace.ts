@@ -193,14 +193,23 @@ export class Workspace {
       }
     }
     /*
-     * File mode with no `known` rebuilds the list from the log.
+     * File mode takes its list from state *and* the log, never from a scan.
      *
-     * State is the only list file mode has, so losing it leaves a directory full of diagrams
-     * showing exactly one. Each candidate is checked by name — a `stat` per name the log
-     * mentions, never a scan, so this cannot adopt `package.json` the way a scan would. A
-     * name with no file is skipped: it was never persisted, so there is nothing to recover.
+     * State is the only list file mode would otherwise have, so losing it leaves a directory
+     * full of diagrams showing exactly one — and `POST /api/diagrams` cannot rescue them,
+     * since a file on disk counts as existing and is refused. The log is the durable record:
+     * a name it mentions that still has a file is a diagram of this workspace, whatever state
+     * says. Each candidate is a `stat` by name, never a scan, so this cannot adopt
+     * `package.json` the way a scan would.
+     *
+     * Deliberately not gated on `known` being empty. That was the first shape of this fix and
+     * it only helped a workspace whose state was *missing*: one boot with a truncated file
+     * wrote `known: ['graph']`, and from then on the recovery could never run again.
+     *
+     * A name with no file is skipped — it was never persisted, so there is nothing to
+     * recover, and this is what makes deleting the file the way to retire a diagram.
      */
-    if (mode === 'file' && log.knownDiagrams.length === 0) {
+    if (mode === 'file') {
       for (const name of log.diagramsInLog) {
         try {
           await stat(join(dir, `${name}.json`));
