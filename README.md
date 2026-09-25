@@ -142,6 +142,10 @@ A node carries a one-line `label` and optional multi-line `body` — the name an
 They are separate fields because ids are derived from labels, and because a long body in the
 change feed would bury everything else in it. A pipe table in a body renders as a table.
 
+A node can also carry a `code` reference — `file`, and optionally `symbol` and `lines` — so
+the diagram is a map of the codebase and "delete this node" reads as "remove that module".
+It renders as one line under the node, in the shape an editor's go-to-line already reads.
+
 Colour and arrowheads are the two presentational things on that surface, and both are there
 because they are statements: amber says "needs attention", and `arrow: both` says two things
 depend on each other rather than one calling the other. Each is a validated name, refused at
@@ -174,8 +178,7 @@ diagrams with a switcher, subcanvases in a floating editable panel, `generate_gr
 dagre, an op log behind `get_changes`, semantic layout ops, and the sixteen MCP tools — with
 tests for core and server plus a Playwright suite driving a real browser.
 
-Not yet built: **code references** in node `data` (file, symbol, lines), and **batched edits**
-so the agent never acts on a change the moment it lands.
+Not yet built: **batched edits**, so the agent never acts on a change the moment it lands.
 
 Nothing here has auth. The server binds locally and trusts its callers.
 

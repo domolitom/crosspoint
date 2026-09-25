@@ -128,6 +128,15 @@ deliberately a *rendering* decision: columns only line up in monospace and prose
 in proportional, and doing it by content keeps tables working with nothing new in the model
 and nothing new on the agent's surface.
 
+### A code reference is a validated object, not a loose key
+
+`data.code` is `{ file, symbol?, lines? }`, checked at the door like colour: unknown keys,
+an empty `file` or `lines` that is not `"12"` or `"12-40"` are refused, and `"none"` deletes
+the key. It is structural and on the agent's write surface for the same reason colour is —
+pointing a box at a module says what the box *is* and moves nothing. The feed prints it in
+go-to-line shape via `describeCode`, and `nodeText` counts it as one more line so placement
+measures the same box the canvas draws.
+
 ### Placement seeds, it does not re-solve
 
 `placeNode` only ever positions the *new* node and never moves existing ones. Running a global
@@ -690,7 +699,6 @@ Check the code before trusting this list; it records decisions, not status.
 
 - **Batched edits** — the user edits freely and nothing happens until they say go; the agent
   then reads the accumulated diff. Never act on a change the moment it lands.
-- **Code references** in node `data` (`file`, `symbol`, `lines`).
 
 ## Parked decisions
 
