@@ -1,5 +1,7 @@
 # Build every workspace, then ship only what the server needs at runtime.
-FROM node:22-alpine AS build
+# The build stage runs on the builder's own architecture: every dependency is pure JS, and
+# node under QEMU dies with SIGILL, so nothing here may run node on the emulated side.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 WORKDIR /app
 
 # Manifests first, so a source-only change does not reinstall dependencies.
@@ -13,6 +15,8 @@ RUN npm ci
 
 COPY . .
 RUN npm run build
+# Prune to runtime dependencies here, natively, rather than installing in the target stage.
+RUN npm ci --omit=dev && npm cache clean --force
 
 
 FROM node:22-alpine
@@ -27,7 +31,8 @@ COPY packages/e2e/package.json packages/e2e/
 COPY packages/mcp/package.json packages/mcp/
 COPY packages/server/package.json packages/server/
 COPY packages/web/package.json packages/web/
-RUN npm ci --omit=dev && npm cache clean --force
+# Workspace links inside node_modules point at packages/*, so the manifests above must exist.
+COPY --from=build /app/node_modules node_modules
 
 # `static.ts` resolves the canvas relative to packages/server/dist, so the tree shape matters.
 COPY --from=build /app/packages/core/dist   packages/core/dist
