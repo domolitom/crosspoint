@@ -685,15 +685,17 @@ test('a code reference renders on the node and survives a later push', async () 
     'coderef',
   );
   assert.equal(status, 200);
-  await until('the code line to render', async () => (await line.count()) > 0);
-  assert.equal(await line.innerText(), 'src/auth.ts:12-40 (login)');
+  // `textContent`, not `innerText`: React Flow keeps a freshly measured node hidden for a
+  // frame, and `innerText` reads as empty on a hidden element.
+  const text = async () => ((await line.count()) ? await line.textContent() : null);
+  await until('the code line to render', async () => (await text()) === 'src/auth.ts:12-40 (login)');
 
   // A second, unrelated op pushes the whole graph again; the reference must still be there.
   await stack.op({ op: 'add_node', label: 'Other' }, 'coderef');
   await until('the other node to render', async () =>
     (await stack.page.locator('.react-flow__node').count()) >= 2,
   );
-  assert.equal(await line.innerText(), 'src/auth.ts:12-40 (login)');
+  assert.equal(await text(), 'src/auth.ts:12-40 (login)');
 
   await stack.op({ op: 'update_node', id, code: 'none' }, 'coderef');
   await until('the code line to go', async () => (await line.count()) === 0);
