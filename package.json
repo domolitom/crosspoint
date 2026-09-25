@@ -1,6 +1,6 @@
 {
   "name": "crosspoint",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "MIT",
   "description": "A diagram an agent and a human can both edit — a typed graph whose layout the human owns and the agent cannot express.",
   "keywords": [
@@ -44,7 +44,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@crosspoint/core": "^0.3.0",
+    "@crosspoint/core": "^0.4.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

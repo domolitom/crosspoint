@@ -3,7 +3,10 @@
 Versions are git tags, npm versions and image tags alike: `v0.3.0` is `crosspoint@0.3.0` is
 `ghcr.io/domolitom/crosspoint:v0.3.0`.
 
-## Unreleased
+## 0.4.0 — 2026-09-25
+
+- Nodes carry a validated `code` reference (`file`, `symbol`, `lines`), on the agent surface and rendered on the node.
+- A format spec (`docs/FORMAT.md`), a contributing guide, and a changelog.
 
 - The state sidecar is written atomically, and an unreadable one is treated as absent.
 - The diagram list in file mode is recovered from the op log as well as state.
