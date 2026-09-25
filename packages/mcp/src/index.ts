@@ -85,6 +85,26 @@ const colorSchemaFor = (subject: 'node' | 'edge') =>
 const colorSchema = colorSchemaFor('node');
 const edgeColorSchema = colorSchemaFor('edge');
 
+/** Where in the codebase a node points. Structural, like colour: it says what the node is. */
+const codeSchema = z
+  .union([
+    z.object({
+      file: z.string().min(1).describe('Path relative to the project root.'),
+      symbol: z.string().min(1).optional().describe('Function, class or export the node stands for.'),
+      lines: z
+        .string()
+        .regex(/^\d+(-\d+)?$/)
+        .optional()
+        .describe('Line or range, as "12" or "12-40".'),
+    }),
+    z.literal('none'),
+  ])
+  .describe(
+    'The code this node stands for. Set it when a box maps onto a real file so the diagram ' +
+      'is a map of the codebase and "delete this node" reads as "remove that module". Pass ' +
+      '"none" to clear it.',
+  );
+
 /** Which ends carry an arrowhead. A statement about the relationship, not decoration. */
 const arrowSchema = z
   .enum(['forward', 'both', 'none'])
@@ -213,10 +233,11 @@ server.registerTool(
         .optional()
         .describe('Id of an existing node to place this one beneath.'),
       color: colorSchema.optional(),
+      code: codeSchema.optional(),
     },
   },
-  async ({ label, body, near, color }) =>
-    ok(await applyOp({ op: 'add_node', label, body, near, color })),
+  async ({ label, body, near, color, code }) =>
+    ok(await applyOp({ op: 'add_node', label, body, near, color, code })),
 );
 
 server.registerTool(
@@ -247,6 +268,7 @@ server.registerTool(
               .optional()
               .describe('Override the id derived from the label. Needed when labels collide.'),
             color: colorSchema.optional(),
+            code: codeSchema.optional(),
           }),
         )
         .min(1)
@@ -314,7 +336,7 @@ server.registerTool(
   {
     title: 'Update node',
     description:
-      "Change a node's label, its body text, its colour, or any combination. Its position " +
+      "Change a node's label, its body text, its colour, its code reference, or any combination. Its position " +
       'is untouched — none of these moves a node the human has placed. Pass whichever ' +
       'fields you want to change; omitting one leaves it alone.',
     inputSchema: {
@@ -338,11 +360,12 @@ server.registerTool(
             'makes the diagram and links it in one step. Pass "none" to unlink without ' +
             'deleting the diagram.',
         ),
+      code: codeSchema.optional(),
       diagram: diagramParam,
     },
   },
-  async ({ id, label, body, color, subcanvas, diagram }) =>
-    ok(await applyOp({ op: 'update_node', id, label, body, color, subcanvas }, diagram)),
+  async ({ id, label, body, color, subcanvas, code, diagram }) =>
+    ok(await applyOp({ op: 'update_node', id, label, body, color, subcanvas, code }, diagram)),
 );
 
 server.registerTool(
