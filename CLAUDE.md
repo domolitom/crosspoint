@@ -271,8 +271,8 @@ the rest silently revert on the next server push.
 
 **`pathOptions.curvature` cannot separate a reciprocal edge pair.** React Flow ignores
 curvature whenever the handles already face each other and uses `0.5 * distance` instead.
-Reciprocal labels are separated by offsetting each along the normal to its own source→target
-axis, in `DirectedEdge.tsx`. That offset is one positive constant, **not** a per-edge sign:
+A reciprocal pair is separated by bowing each curve along the normal to its own source→target
+axis, in `DirectedEdge.tsx`. That bow is one positive constant, **not** a per-edge sign:
 the normal already reverses for the opposite edge, so negating it too cancels out.
 
 **Placement must use real node sizes.** Nodes size themselves to their label in the browser,
@@ -365,9 +365,11 @@ through its side long before the 45° line says so. Compare `|dx| * h` against `
 
 **Computed faces make a reciprocal pair one line.** A→B and B→A now pick the same two faces,
 so without the perpendicular offset they draw exactly on top of each other — worse than the
-stacked-labels problem the offset originally existed for. The offset now shifts both
-endpoints, not just the label, and the label rides the shifted path rather than being moved
-again on top of it.
+stacked-labels problem the offset originally existed for. The offset displaces the bezier
+*control* points, never the ends, and the label rides the bowed path. Shifting the endpoints
+was tried first and walked them off the face onto the corners (#15): on an 80px node, 24px
+from the midpoint is most of the way to the corner. The e2e guard asserts each end against
+its face midpoint.
 
 **An auto-started server must be detached with its stdio dropped.** On this transport stdout
 *is* the MCP protocol, so an inherited stdout interleaves server logs into JSON-RPC and kills
@@ -437,6 +439,13 @@ cannot use the OIDC token, so CI can never finish it; a human approves it on npm
 `npm stage approve`. Keep the three connections configured alike, and check a release against
 the registry — `curl -o /dev/null -w '%{http_code}' registry.npmjs.org/<pkg>/<version>` and a
 real install in an empty directory — never against a green workflow.
+
+**Node under QEMU dies with SIGILL, so the image's target stage must never run it.** The
+arm64 half of the multi-arch push is emulated on an x86 runner, and `npm ci` in the runtime
+stage exited 132 with `qemu: uncaught target signal 4`. Every runtime dependency is pure JS,
+so the build stage is pinned to `$BUILDPLATFORM`, installs and prunes natively, and the
+target stage only copies files. It passed for weeks before failing, so a green run is not
+proof the shape is right; a `RUN` that executes node in the second stage is the tell.
 
 **A `files` entry beats `.gitignore`, which is why publishing a gitignored `dist` works.** It
 reads wrong every time. `npm pack --dry-run` is the only answer worth trusting; check it
