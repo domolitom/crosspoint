@@ -182,5 +182,7 @@ Not yet built: **batched edits**, so the agent never acts on a change the moment
 
 Nothing here has auth. The server binds locally and trusts its callers.
 
-MIT licensed. Contributing guidance for agents is in [AGENTS.md](AGENTS.md); the invariants
+MIT licensed. The file format is specified in [docs/FORMAT.md](docs/FORMAT.md). Contributing
+guidance for humans is in [CONTRIBUTING.md](CONTRIBUTING.md), for agents in
+[AGENTS.md](AGENTS.md); the invariants
 and the traps behind them are in [CLAUDE.md](CLAUDE.md).
