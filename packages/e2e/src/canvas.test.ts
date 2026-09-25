@@ -670,3 +670,31 @@ test('an edge end can be grabbed and moved to another point', async () => {
   });
   assertOnPoint(await pathEnd(id), points(await flowRect(b)).top, 'after re-pointing');
 });
+
+/**
+ * A code reference must reach the canvas and survive the next push. The node rebuild once
+ * picked out `label` alone, and anything else in `data` vanished on the following frame.
+ */
+test('a code reference renders on the node and survives a later push', async () => {
+  const seedIn = await freshDiagram('coderef');
+  const id = await seedIn('Auth', 200, 200);
+  const line = stack.page.locator(`.react-flow__node[data-id="${id}"] .cp-node-code`);
+
+  const { status } = await stack.op(
+    { op: 'update_node', id, code: { file: 'src/auth.ts', symbol: 'login', lines: '12-40' } },
+    'coderef',
+  );
+  assert.equal(status, 200);
+  await until('the code line to render', async () => (await line.count()) > 0);
+  assert.equal(await line.innerText(), 'src/auth.ts:12-40 (login)');
+
+  // A second, unrelated op pushes the whole graph again; the reference must still be there.
+  await stack.op({ op: 'add_node', label: 'Other' }, 'coderef');
+  await until('the other node to render', async () =>
+    (await stack.page.locator('.react-flow__node').count()) >= 2,
+  );
+  assert.equal(await line.innerText(), 'src/auth.ts:12-40 (login)');
+
+  await stack.op({ op: 'update_node', id, code: 'none' }, 'coderef');
+  await until('the code line to go', async () => (await line.count()) === 0);
+});
