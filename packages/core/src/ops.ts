@@ -7,6 +7,7 @@ import {
   EDGE_ARROWS,
   EDGE_SIDES,
   NODE_COLORS,
+  type CodeInput,
   type ColorInput,
   type EdgeArrow,
   type EdgeSide,
@@ -36,6 +37,26 @@ function requireColor(color: unknown): void {
   }
 }
 
+/** Reject a malformed code reference rather than storing it — the same door colour has. */
+function requireCode(code: unknown): void {
+  if (code === undefined || code === 'none') return;
+  const bad = (why: string) => new GraphError(`Invalid code reference: ${why}`);
+  if (typeof code !== 'object' || code === null || Array.isArray(code)) {
+    throw bad('expected { file, symbol?, lines? } or "none"');
+  }
+  const ref = code as Record<string, unknown>;
+  for (const key of Object.keys(ref)) {
+    if (!['file', 'symbol', 'lines'].includes(key)) throw bad(`unknown field "${key}"`);
+  }
+  if (typeof ref.file !== 'string' || ref.file.trim() === '') throw bad('file is required');
+  if (ref.symbol !== undefined && (typeof ref.symbol !== 'string' || ref.symbol === '')) {
+    throw bad('symbol must be a non-empty string');
+  }
+  if (ref.lines !== undefined && (typeof ref.lines !== 'string' || !/^\d+(-\d+)?$/.test(ref.lines))) {
+    throw bad('lines must be "12" or "12-40"');
+  }
+}
+
 /**
  * Fold a label / colour / data change into existing node data.
  *
@@ -50,10 +71,13 @@ function mergeNodeData(
     body?: string;
     color?: ColorInput;
     subcanvas?: string | 'none';
+    code?: CodeInput;
     data?: Record<string, unknown>;
   },
 ): NodeData {
   const data: NodeData = { ...current, ...change.data, label: change.label ?? current.label };
+  if (change.code === 'none') delete data.code;
+  else if (change.code !== undefined) data.code = change.code;
   // `none` deletes the key rather than storing a sentinel, so an unset node reads as
   // untouched in the file instead of carrying a marker into every diff.
   if (change.color === 'none') delete data.color;
@@ -177,11 +201,17 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
   switch (op.op) {
     case 'add_node': {
       requireColor(op.color);
+      requireCode(op.code);
       const taken = new Set(graph.nodes.map((n) => n.id));
       const id = uniqueId(slugify(op.label), taken);
       const node: GraphNode = {
         id,
-        position: placeNode(graph.nodes, { near: op.near, label: op.label, body: op.body }),
+        position: placeNode(graph.nodes, {
+          near: op.near,
+          label: op.label,
+          body: op.body,
+          code: op.code === 'none' ? undefined : op.code,
+        }),
         data: mergeNodeData({ label: op.label }, op),
       };
       return { ...next, nodes: [...graph.nodes, node] };
@@ -252,6 +282,7 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
     case 'update_node': {
       requireNode(graph, op.id, 'id');
       requireColor(op.color);
+      requireCode(op.code);
       return {
         ...next,
         nodes: graph.nodes.map((n) =>
@@ -336,7 +367,10 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
     }
 
     case 'generate_graph': {
-      for (const node of op.nodes) requireColor(node.color);
+      for (const node of op.nodes) {
+        requireColor(node.color);
+        requireCode(node.code);
+      }
       for (const edge of op.edges) requireColor(edge.color);
 
       // Checked before any work, and `applyOp` is pure, so a refusal cannot leave the

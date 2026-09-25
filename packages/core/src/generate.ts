@@ -96,6 +96,7 @@ function dataFor(node: GeneratedNode): NodeData {
   const data: NodeData = { ...node.data, label: node.label };
   // `none` is an instruction to clear, and there is nothing to clear on a new node.
   if (node.color && node.color !== 'none') data.color = node.color;
+  if (node.code && node.code !== 'none') data.code = node.code;
   return data;
 }
 

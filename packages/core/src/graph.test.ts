@@ -1046,3 +1046,63 @@ test('the next node is placed clear of a box that grew', () => {
     `placed at ${JSON.stringify(next)}, inside a box ${h}px tall`,
   );
 });
+
+test('a code reference is stored on the node', () => {
+  const code = { file: 'src/auth.ts', symbol: 'login', lines: '12-40' };
+  const g = applyOp(build(), { op: 'update_node', id: 'database', code });
+  assert.deepEqual(g.nodes.find((n) => n.id === 'database')!.data.code, code);
+});
+
+test('a node can be created already pointing at code', () => {
+  const g = applyOp(emptyGraph(), { op: 'add_node', label: 'Auth', code: { file: 'src/auth.ts' } });
+  assert.deepEqual(g.nodes[0].data.code, { file: 'src/auth.ts' });
+});
+
+test('a malformed code reference is rejected rather than stored', () => {
+  const bad = [
+    'src/auth.ts',
+    { symbol: 'login' },
+    { file: '' },
+    { file: 'a.ts', lines: '12-' },
+    { file: 'a.ts', lines: 12 },
+    { file: 'a.ts', line: '12' },
+    ['a.ts'],
+  ];
+  for (const code of bad) {
+    assert.throws(
+      () => applyOp(build(), { op: 'update_node', id: 'database', code: code as never }),
+      GraphError,
+      `${JSON.stringify(code)} should not be accepted`,
+    );
+  }
+});
+
+test('"none" removes the code key instead of storing the string', () => {
+  let g = applyOp(build(), { op: 'update_node', id: 'database', code: { file: 'db.ts' } });
+  g = applyOp(g, { op: 'update_node', id: 'database', code: 'none' });
+  assert.equal('code' in g.nodes.find((n) => n.id === 'database')!.data, false);
+});
+
+test('a code reference survives the structural view', () => {
+  const g = applyOp(build(), { op: 'update_node', id: 'database', code: { file: 'db.ts' } });
+  const view = structuralView(g);
+  assert.deepEqual(view.nodes.find((n) => n.id === 'database')!.code, { file: 'db.ts' });
+});
+
+test('generate_graph validates and stores code references', () => {
+  const g = applyOp(emptyGraph(), {
+    op: 'generate_graph',
+    nodes: [{ label: 'Auth', code: { file: 'src/auth.ts', lines: '1-9' } }],
+    edges: [],
+  });
+  assert.deepEqual(g.nodes[0].data.code, { file: 'src/auth.ts', lines: '1-9' });
+  assert.throws(
+    () =>
+      applyOp(emptyGraph(), {
+        op: 'generate_graph',
+        nodes: [{ label: 'Auth', code: { file: '' } as never }],
+        edges: [],
+      }),
+    GraphError,
+  );
+});

@@ -80,6 +80,22 @@ export type EdgeSide = (typeof EDGE_SIDES)[number];
 
 export type SideInput = EdgeSide | 'auto';
 
+/**
+ * Where in the codebase a node points.
+ *
+ * Structural, like colour and body: a node that names `src/auth.ts` says something, and
+ * deleting it reads as "remove that module". Validated at the door rather than left in the
+ * open `data` bag, so a reader can rely on the shape. `lines` is `"12"` or `"12-40"`.
+ */
+export interface CodeRef {
+  file: string;
+  symbol?: string;
+  lines?: string;
+}
+
+/** What an op may ask for. `none` clears the reference and is never itself stored. */
+export type CodeInput = CodeRef | 'none';
+
 export interface NodeData {
   /**
    * The node's name. One line, deliberately: ids are slugified from it, so a label with
@@ -107,6 +123,8 @@ export interface NodeData {
    * to write to — and two different meanings one word apart is a trap.
    */
   subcanvas?: string;
+  /** The code this node stands for, if any. Absent means the node is only a concept. */
+  code?: CodeRef;
   [key: string]: unknown;
 }
 
@@ -167,6 +185,7 @@ export interface GeneratedNode {
   /** Defaults to the slugified label. Supply one when two nodes share a label. */
   id?: string;
   color?: ColorInput;
+  code?: CodeInput;
   data?: Record<string, unknown>;
 }
 
@@ -193,6 +212,7 @@ export type StructuralOp =
       /** Multi-line detail. An empty string clears it. */
       body?: string;
       color?: ColorInput;
+      code?: CodeInput;
       data?: Record<string, unknown>;
     }
   | {
@@ -218,6 +238,8 @@ export type StructuralOp =
       color?: ColorInput;
       /** Link this node to a diagram holding its detail. `none` unlinks without deleting. */
       subcanvas?: string | 'none';
+      /** Point this node at code. `none` clears the reference. */
+      code?: CodeInput;
       data?: Record<string, unknown>;
     }
   | {

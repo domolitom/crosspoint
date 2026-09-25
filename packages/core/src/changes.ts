@@ -1,4 +1,4 @@
-import type { GraphOp } from './types.js';
+import type { CodeRef, GraphOp } from './types.js';
 
 /**
  * The change feed: what happened to a diagram, in the order it happened.
@@ -154,6 +154,10 @@ export const kindOf = (op: LoggedOp): ChangeKind =>
 const quote = (s: string) => `"${s}"`;
 const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
+/** `src/auth.ts:12-40 (login)` — the shape an editor's go-to-line already reads. */
+export const describeCode = (ref: CodeRef): string =>
+  ref.file + (ref.lines ? `:${ref.lines}` : '') + (ref.symbol ? ` (${ref.symbol})` : '');
+
 /** One readable line per op. This is what actually gets read, so it earns its keep. */
 export function describeOp(op: LoggedOp): string {
   switch (op.op) {
@@ -162,7 +166,8 @@ export function describeOp(op: LoggedOp): string {
         `+ node ${quote(op.label)}` +
         (op.body ? ' with a body' : '') +
         (op.near ? ` near ${op.near}` : '') +
-        (op.color && op.color !== 'none' ? ` coloured ${op.color}` : '')
+        (op.color && op.color !== 'none' ? ` coloured ${op.color}` : '') +
+        (op.code && op.code !== 'none' ? ` → ${describeCode(op.code)}` : '')
       );
     case 'add_node_at':
       return `+ node ${quote(op.label)} (dropped on canvas)`;
@@ -189,6 +194,8 @@ export function describeOp(op: LoggedOp): string {
       else if (op.color) parts.push(`coloured ${op.color}`);
       if (op.subcanvas === 'none') parts.push('subcanvas unlinked');
       else if (op.subcanvas) parts.push(`subcanvas ${op.subcanvas}`);
+      if (op.code === 'none') parts.push('code reference cleared');
+      else if (op.code) parts.push(`→ ${describeCode(op.code)}`);
       if (op.data) parts.push('data');
       return `~ node ${op.id} ${parts.length ? parts.join(', ') : 'data'}`;
     }

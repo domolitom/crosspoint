@@ -1,4 +1,5 @@
-import type { EdgeSide, GraphNode, Position, Size } from './types.js';
+import { describeCode } from './changes.js';
+import type { CodeRef, EdgeSide, GraphNode, Position, Size } from './types.js';
 
 /**
  * Seed placement for nodes that arrive without coordinates.
@@ -70,8 +71,16 @@ export function estimateNodeHeight(text: string, width?: number): number {
 export function nodeText(node: GraphNode): string {
   const label = String(node.data?.label ?? node.id);
   const body = node.data?.body;
-  return typeof body === 'string' && body.length > 0 ? `${label}\n${body}` : label;
+  const code = node.data?.code;
+  return withCode(
+    typeof body === 'string' && body.length > 0 ? `${label}\n${body}` : label,
+    code && typeof code === 'object' ? (code as CodeRef) : undefined,
+  );
 }
+
+/** A code reference renders as one more line, so it is one more line to place around. */
+const withCode = (text: string, code?: CodeRef) =>
+  code ? `${text}\n${describeCode(code)}` : text;
 
 /**
  * How big a node actually is: its pinned size if it has one, otherwise its estimate.
@@ -134,6 +143,8 @@ export interface PlacementHint {
   label?: string;
   /** Its body, if it has one — a node with detail needs a bigger clearing than its name. */
   body?: string;
+  /** Its code reference, which renders as one more line. */
+  code?: CodeRef;
 }
 
 /**
@@ -148,7 +159,10 @@ export function placeNode(nodes: GraphNode[], hint: PlacementHint = {}): Positio
   // estimate otherwise — rather than a shared constant.
   const placed: Box[] = nodes.filter((n) => n.position != null).map((n) => boxFor(n.position!, n));
 
-  const text = hint.body ? `${hint.label ?? ''}\n${hint.body}` : (hint.label ?? '');
+  const text = withCode(
+    hint.body ? `${hint.label ?? ''}\n${hint.body}` : (hint.label ?? ''),
+    hint.code,
+  );
   const own = { w: estimateNodeWidth(text), h: estimateNodeHeight(text) };
   const anchor = resolveAnchor(placed, nodes, hint, own);
 

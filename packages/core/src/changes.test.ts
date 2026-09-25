@@ -295,3 +295,18 @@ test('creating a diagram is a structural change named by its entry', () => {
   assert.equal(describeOp({ op: 'create_diagram' }), '+ diagram');
   assert.match(summarise([entry(4, { op: 'create_diagram' })]), /plan {2}\+ diagram/);
 });
+
+test('a code reference is named in the feed, in go-to-line shape', () => {
+  assert.equal(
+    describeOp({ op: 'add_node', label: 'Auth', code: { file: 'src/auth.ts', symbol: 'login', lines: '12-40' } }),
+    '+ node "Auth" → src/auth.ts:12-40 (login)',
+  );
+  assert.equal(
+    describeOp({ op: 'update_node', id: 'auth', code: { file: 'src/auth.ts' } }),
+    '~ node auth → src/auth.ts',
+  );
+  assert.equal(
+    describeOp({ op: 'update_node', id: 'auth', code: 'none' }),
+    '~ node auth code reference cleared',
+  );
+});
