@@ -553,6 +553,11 @@ Keystrokes sent straight after the field appears go to the document instead — 
 is slow enough to mask it, a single `Meta+A` is not. The e2e suite has an `awaitFocus` helper;
 use it.
 
+**`innerText` is empty on a node React Flow has not shown yet.** A freshly measured node is
+kept `visibility: hidden` for a frame, and `innerText` honours that, so a test that waits for
+the element and then reads its text sees `''` about one run in three. Read `textContent`, and
+wait on the value rather than on the element existing.
+
 **A labelled, selected edge has its × over the path midpoint**, so a positional double-click
 on the edge lands on delete instead of opening the editor. Dispatch the event to the element
 when the point is contested, and keep one positional test to prove the edge is hittable.
