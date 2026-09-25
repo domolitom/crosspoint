@@ -616,6 +616,20 @@ body,
   white-space: pre-wrap;
 }
 
+/* Where the node points in the codebase. Monospace: it is a path, and it reads as one. */
+.react-flow__node .cp-node-code {
+  display: block;
+  margin-top: 6px;
+  color: #6b7280;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 17px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .react-flow__node .cp-node-body-input {
   display: block;
   width: 100%;

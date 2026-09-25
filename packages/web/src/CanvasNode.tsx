@@ -1,4 +1,5 @@
 import { Handle, NodeResizer, Position, type Node, type NodeProps } from '@xyflow/react';
+import { describeCode, type CodeRef } from '@crosspoint/core';
 
 import { LabelInput } from './LabelInput';
 
@@ -18,6 +19,8 @@ export type CanvasNodeData = {
   label: string;
   /** Name of the diagram holding this node's detail, if any. */
   subcanvas?: string;
+  /** The code this node stands for, if any. Rendered as one monospace line. */
+  code?: CodeRef;
   /** Absent in the panel at maximum depth, where lensing further is refused. */
   onLens?: () => void;
   /** Called with the new label. Not called when the label is unchanged. */
@@ -116,6 +119,11 @@ export function CanvasNode({ data, selected }: NodeProps<Node<CanvasNodeData>>) 
             {data.body}
           </span>
         )
+      )}
+      {data.code && (
+        <span className="cp-node-code" title={describeCode(data.code)}>
+          {describeCode(data.code)}
+        </span>
       )}
       {data.onEditBody && !data.body && data.editing === undefined && (
         <button
