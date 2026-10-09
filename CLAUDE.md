@@ -698,12 +698,33 @@ Deleting a linked node **orphans** the subcanvas. The graph model has no power t
 file, so this is true by construction rather than by a check — one click must not be able to
 discard an hour of sub-planning.
 
+### Batched edits
+
+The human edits freely and presses **Send** (or Cmd/Ctrl+Enter) when they mean it. Send is a
+`submit` entry in the log, not state: it takes a workspace rev, carries actor `human`
+because it arrives over the websocket, and records nothing when there is nothing to send.
+
+A no-argument read releases everything after the watermark **up to the first unsent human
+change**, never past it. It is a cut, not a filter, because the watermark is one number: an
+agent entry after a held human one waits with it, or skipping ahead would strand the held
+change behind the watermark for good. Only human, non-layout entries trigger the hold.
+Moves, agent ops and unattributed entries never wait, which is why every feed test that
+drives only HTTP still passes unchanged.
+
+Three ways out, each deliberate. `include_unsent` reads and consumes everything, for when the
+human asks about their edits in chat without pressing Send — reading counts as sent. `wait`
+blocks until a Send makes something visible, up to 300s, so an agent can sit on the button.
+`since` stays raw and repeatable and ignores the hold entirely. The `unsent` count rides on
+every feed response and every websocket push, and the summary says it out loud, so a held
+change is never silently missing.
+
+A hand edit of the file is a human change too, so it is held like one. A test that writes a
+file and then drains the feed must drain with `include_unsent`, or the edit blocks every
+later read in the suite — two tests broke exactly that way when this landed.
+
 ## Designed and agreed, not yet built
 
-Check the code before trusting this list; it records decisions, not status.
-
-- **Batched edits** — the user edits freely and nothing happens until they say go; the agent
-  then reads the accumulated diff. Never act on a change the moment it lands.
+Nothing outstanding. Check the code before trusting this; it records decisions, not status.
 
 ## Parked decisions
 

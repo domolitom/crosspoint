@@ -178,7 +178,10 @@ diagrams with a switcher, subcanvases in a floating editable panel, `generate_gr
 dagre, an op log behind `get_changes`, semantic layout ops, and the sixteen MCP tools — with
 tests for core and server plus a Playwright suite driving a real browser.
 
-Not yet built: **batched edits**, so the agent never acts on a change the moment it lands.
+Edits are batched. You change the diagram freely and press **Send** (or Cmd/Ctrl+Enter) when
+you mean it. Until then `get_changes` holds your edits back and tells the agent how many are
+waiting. The agent can block until you press Send, or read unsent edits when you ask about
+them in chat.
 
 Nothing here has auth. The server binds locally and trusts its callers.
 

@@ -3,6 +3,11 @@
 Versions are git tags, npm versions and image tags alike: `v0.3.0` is `crosspoint@0.3.0` is
 `ghcr.io/domolitom/crosspoint:v0.3.0`.
 
+## Unreleased
+
+- Batched edits: human changes are held until Send, a header button or Cmd/Ctrl+Enter.
+- `get_changes` reports how many changes are unsent, can wait for Send, and can read unsent changes on request.
+
 ## 0.4.0 — 2026-09-25
 
 - Nodes carry a validated `code` reference (`file`, `symbol`, `lines`), on the agent surface and rendered on the node.
