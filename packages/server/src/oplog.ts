@@ -1,6 +1,13 @@
 import { appendFile, readFile, rename, writeFile } from 'node:fs/promises';
 
-import { kindOf, type Actor, type LogEntry, type LoggedOp } from '@crosspoint/core';
+import {
+  kindOf,
+  releasable,
+  unsent,
+  type Actor,
+  type LogEntry,
+  type LoggedOp,
+} from '@crosspoint/core';
 
 /**
  * Append-only history of everything that happened across the whole workspace.
@@ -156,13 +163,25 @@ export class OpLog {
    * an agent's memory of a rev number does not survive a new session or a compacted
    * context, so the server has to remember on its behalf.
    */
-  consume(): LogEntry[] {
-    const entries = this.since(this.watermarkValue);
+  consume(includeUnsent = false): LogEntry[] {
+    const entries = this.peek(includeUnsent);
     if (entries.length > 0) {
       this.watermarkValue = entries.at(-1)!.rev;
       void this.persistState();
     }
     return entries;
+  }
+
+  /** What `consume` would return, without moving the watermark. */
+  peek(includeUnsent = false): LogEntry[] {
+    return includeUnsent
+      ? this.since(this.watermarkValue)
+      : releasable(this.entries, this.watermarkValue);
+  }
+
+  /** Human changes the agent has neither been sent nor read. */
+  get unsentCount(): number {
+    return unsent(this.entries, this.watermarkValue).length;
   }
 
   /** Record workspace state the graph files cannot carry: which diagram is active. */

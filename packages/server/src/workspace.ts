@@ -17,6 +17,7 @@ import { OpLog } from './oplog.js';
 export { StaleRevError };
 
 export type WorkspaceEvent =
+  | { type: 'unsent' }
   | {
       type: 'graph';
       diagram: string;
@@ -459,9 +460,41 @@ export class Workspace {
     return this.log.since(rev);
   }
 
-  /** Everything unseen across every diagram, advancing the watermark past it. */
-  consumeChanges(): LogEntry[] {
-    return this.log.consume();
+  /** Everything sent and unseen across every diagram, advancing the watermark past it. */
+  consumeChanges(includeUnsent = false): LogEntry[] {
+    const before = this.log.unsentCount;
+    const entries = this.log.consume(includeUnsent);
+    if (this.log.unsentCount !== before) this.emit({ type: 'unsent' });
+    return entries;
+  }
+
+  peekChanges(includeUnsent = false): LogEntry[] {
+    return this.log.peek(includeUnsent);
+  }
+
+  get unsentCount(): number {
+    return this.log.unsentCount;
+  }
+
+  /** The human pressing Send. Returns false when there was nothing to send. */
+  submit(): boolean {
+    if (this.log.unsentCount === 0) return false;
+    this.log.record(this.nextRev(), { op: 'submit' }, this.activeName, 'human');
+    this.emit({ type: 'unsent' });
+    return true;
+  }
+
+  /** Resolves on the next workspace event, or after `ms`. */
+  nextEvent(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        this.listeners.delete(done);
+        resolve();
+      };
+      const timer = setTimeout(done, ms);
+      this.listeners.add(done);
+    });
   }
 
   async close(): Promise<void> {

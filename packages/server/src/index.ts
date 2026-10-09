@@ -5,8 +5,10 @@ import {
   summarise,
   withActor,
   withoutLayout,
+  withoutSubmits,
   type ActorFilter,
   type GraphOp,
+  type LogEntry,
 } from '@crosspoint/core';
 import { WebSocketServer, type WebSocket } from 'ws';
 
@@ -68,28 +70,38 @@ const server = createServer(async (req, res) => {
       // No `since` means "everything I have not seen", which consumes. An explicit
       // `since` is a repeatable query and deliberately leaves the watermark alone.
       const raw = url.searchParams.get('since');
-      const all = raw === null ? store.consumeChanges() : store.changesSince(Number(raw));
-      // Repositioning is dropped unless asked for. Note the watermark has already moved
-      // past those entries: they are filtered out of the *response*, not left unseen, or
-      // every subsequent call would re-scan the same pile of moves forever.
-      const withLayout =
-        url.searchParams.get('include_layout') === 'true' ? all : withoutLayout(all);
-      // Human-authored by default: the feed answers "what did the human change", and the
-      // agent's own edits are not instructions. Same watermark caveat as above — filtered
-      // entries are dropped from the response, not left unseen.
+      const includeUnsent = url.searchParams.get('include_unsent') === 'true';
+      const includeLayout = url.searchParams.get('include_layout') === 'true';
       const requested = url.searchParams.get('actor');
       const actor: ActorFilter =
         requested === 'agent' || requested === 'all' || requested === 'human'
           ? requested
           : 'human';
-      const entries = withActor(withLayout, actor);
+      // Filtered entries are still consumed, or a later read would re-scan them forever.
+      const visible = (all: LogEntry[]) =>
+        withActor(includeLayout ? withoutSubmits(all) : withoutLayout(withoutSubmits(all)), actor);
+
+      const wait = Math.min(Math.max(Number(url.searchParams.get('wait')) || 0, 0), 300);
+      if (raw === null && wait > 0) {
+        const deadline = Date.now() + wait * 1000;
+        while (visible(store.peekChanges(includeUnsent)).length === 0 && Date.now() < deadline) {
+          await store.nextEvent(deadline - Date.now());
+        }
+      }
+
+      const all =
+        raw === null ? store.consumeChanges(includeUnsent) : store.changesSince(Number(raw));
+      const entries = visible(all);
+      const unsent = store.unsentCount;
+      const note = unsent
+        ? `\n${unsent} unsent change${unsent === 1 ? '' : 's'} held until the human presses Send.`
+        : '';
       return json(res, 200, {
-        // The workspace rev, not the active diagram's. The feed spans every diagram and
-        // `since` is measured against the same counter, so reporting one diagram's
-        // last-write rev here would be answering a different question.
+        // Workspace rev, not a diagram's: `since` is measured against the same counter.
         rev: store.rev,
         watermark: store.log.watermark,
-        summary: summarise(entries),
+        unsent,
+        summary: summarise(entries) + note,
         entries,
       });
     }
@@ -186,8 +198,10 @@ wss.on('connection', (socket: WebSocket) => {
   send({ type: 'hello', clientId });
   send({ type: 'diagrams', active: store.active, diagrams: store.list() });
   send({ type: 'graph', diagram: store.active, graph: store.current() });
+  send({ type: 'unsent', count: store.unsentCount });
 
   const unsubscribe = store.subscribe((event) => {
+    if (event.type === 'unsent') return send({ type: 'unsent', count: store.unsentCount });
     if (event.type === 'diagrams') {
       return send({ type: 'diagrams', active: store.active, diagrams: store.list() });
     }
@@ -196,6 +210,7 @@ wss.on('connection', (socket: WebSocket) => {
     // active diagram here would leave an open panel silently stale. Simpler than per-client
     // subscriptions, and the payload is irrelevant for a local single-user tool.
     send({ type: 'graph', diagram: event.diagram, graph: event.graph, origin: event.origin });
+    send({ type: 'unsent', count: store.unsentCount });
   });
 
   socket.on('message', (raw) => {
@@ -206,6 +221,10 @@ wss.on('connection', (socket: WebSocket) => {
           diagram: msg.diagram ? String(msg.diagram) : undefined,
           origin: clientId,
         });
+        return;
+      }
+      if (msg.type === 'submit') {
+        store.submit();
         return;
       }
       if (msg.type !== 'op') return;

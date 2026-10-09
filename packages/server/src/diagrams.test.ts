@@ -148,7 +148,7 @@ test('creating over a diagram file that exists does not destroy it', async () =>
   await until('the hand-written file to be adopted', async () =>
     (await api('/api/diagrams')).body.diagrams.some((d: any) => d.name === 'written-by-hand'),
   );
-  await api('/api/changes?actor=all');
+  await api('/api/changes?actor=all&include_unsent=true');
 });
 
 // Names become filenames, so this is the boundary that stops a diagram escaping the
@@ -185,7 +185,7 @@ test('switching to a diagram that does not exist is a clean 404', async () => {
 
 // The reason rev is workspace-wide rather than per diagram.
 test('ops across two diagrams interleave in one feed, each tagged', async () => {
-  await api('/api/changes?actor=all'); // drain
+  await api('/api/changes?actor=all&include_unsent=true'); // drain
 
   await op({ op: 'add_node', label: 'First here' });
   await send('/api/diagrams/active', 'PUT', { name: 'auth-flow' });

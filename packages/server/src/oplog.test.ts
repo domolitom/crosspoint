@@ -149,7 +149,7 @@ test('an explicit since is repeatable and does not disturb the watermark', async
 });
 
 test('only new ops appear after the watermark has advanced', async () => {
-  await api('/api/changes?actor=all'); // drain
+  await api('/api/changes?actor=all&include_unsent=true'); // drain
   await op({ op: 'add_node', label: 'Retry' });
 
   const { body } = await api('/api/changes?actor=all');
@@ -158,7 +158,7 @@ test('only new ops appear after the watermark has advanced', async () => {
 });
 
 test('a hand edit of the file is reported as an external change', async () => {
-  await api('/api/changes?actor=all'); // drain
+  await api('/api/changes?actor=all&include_unsent=true'); // drain
 
   // Persistence is debounced, so wait for the node to actually be on disk before
   // editing it — otherwise we race the server's own write.
@@ -285,7 +285,7 @@ test('consuming advances past repositioning even though it is not returned', asy
   await op({ op: 'move_node', id: 'fetch', position: { x: 0, y: 0 } });
   await op({ op: 'move_node', id: 'cache', position: { x: 0, y: 150 } });
 
-  const drained = await api('/api/changes?actor=all');
+  const drained = await api('/api/changes?actor=all&include_unsent=true');
   assert.ok(
     !drained.body.entries.some((e: any) => e.kind === 'layout'),
     'no layout entries in the response',
@@ -363,7 +363,7 @@ test('generating a whole diagram costs one rev and reaches disk laid out', async
 });
 
 test('a generated diagram shows up in the feed, wipe and all', async () => {
-  await api('/api/changes?actor=all'); // drain
+  await api('/api/changes?actor=all&include_unsent=true'); // drain
 
   await op({
     op: 'generate_graph',
@@ -398,7 +398,7 @@ test('align is accepted from the agent surface yet filtered from the feed', asyn
   await op({ op: 'add_node', label: 'Left two' });
   await op({ op: 'move_node', id: 'left-one', position: { x: 90, y: 0 } });
   await op({ op: 'move_node', id: 'left-two', position: { x: 300, y: 150 } });
-  await api('/api/changes?actor=all'); // drain
+  await api('/api/changes?actor=all&include_unsent=true'); // drain
 
   const { status } = await op({ op: 'align', ids: ['left-one', 'left-two'], edge: 'left' });
   assert.equal(status, 200, 'the API accepts it — it carries no coordinate');
@@ -432,7 +432,7 @@ test('align is accepted from the agent surface yet filtered from the feed', asyn
 });
 
 test('a node dropped on the canvas is NOT filtered out of the feed', async () => {
-  await api('/api/changes?actor=all'); // drain
+  await api('/api/changes?actor=all&include_unsent=true'); // drain
   await op({ op: 'add_node_at', label: 'Dropped here', position: { x: 600, y: 600 } });
 
   const { body } = await api('/api/changes?actor=all');
@@ -567,6 +567,21 @@ async function humanOp(body: Record<string, unknown>): Promise<void> {
   socket.close();
 }
 
+/** Press Send, the way the canvas does. */
+async function humanSend(): Promise<void> {
+  const socket = new WebSocket(`ws://localhost:${PORT}/ws`);
+  await new Promise<void>((ok, fail) => {
+    socket.on('open', () => ok());
+    socket.on('error', fail);
+  });
+  const before = (await api('/api/changes?since=0&actor=all')).body.rev;
+  socket.send(JSON.stringify({ type: 'submit' }));
+  await until('the send to be recorded', async () =>
+    (await api('/api/changes?since=0&actor=all')).body.rev > before,
+  );
+  socket.close();
+}
+
 test('the transport decides the actor: websocket is human, HTTP is the agent', async () => {
   await op({ op: 'add_node', label: 'By agent' });
   await humanOp({ op: 'add_node', label: 'By human' });
@@ -581,9 +596,10 @@ test('the transport decides the actor: websocket is human, HTTP is the agent', a
 
 // The whole point of the feature.
 test('a no-argument read returns the human changes and hides the agent own edits', async () => {
-  await api('/api/changes?actor=all'); // drain
+  await api('/api/changes?actor=all&include_unsent=true'); // drain
   await op({ op: 'add_node', label: 'Agent drew this' });
   await humanOp({ op: 'add_node', label: 'Human drew this' });
+  await humanSend();
 
   const { body } = await api('/api/changes');
   const labels = body.entries.map((e: any) => e.op.label);
@@ -593,7 +609,7 @@ test('a no-argument read returns the human changes and hides the agent own edits
 // Same trap as the layout filter: if the watermark stopped at filtered entries, every later
 // call would re-scan the same agent ops and never converge.
 test('consuming advances past agent entries even though they are not returned', async () => {
-  await api('/api/changes?actor=all'); // drain
+  await api('/api/changes?actor=all&include_unsent=true'); // drain
   await op({ op: 'add_node', label: 'Agent only A' });
   await op({ op: 'add_node', label: 'Agent only B' });
 
@@ -606,7 +622,7 @@ test('consuming advances past agent entries even though they are not returned', 
 });
 
 test('actor=agent shows only the agent side', async () => {
-  await api('/api/changes?actor=all'); // drain
+  await api('/api/changes?actor=all&include_unsent=true'); // drain
   await op({ op: 'add_node', label: 'Mine' });
   await humanOp({ op: 'add_node', label: 'Theirs' });
 
@@ -619,7 +635,7 @@ test('actor=agent shows only the agent side', async () => {
 });
 
 test('a hand edit of the file counts as human', async () => {
-  await api('/api/changes?actor=all'); // drain
+  await api('/api/changes?actor=all&include_unsent=true'); // drain
   const graph = await until('a node to be on disk', async () => {
     const g = JSON.parse(await readFile(graphPath, 'utf8'));
     return g.nodes.length ? g : null;
@@ -701,4 +717,63 @@ test('a log line written before actors existed is still returned', async () => {
   } finally {
     legacy.kill();
   }
+});
+
+// Batched edits: the agent never acts on a change the moment it lands.
+test('a human change is held until Send, then released', async () => {
+  await api('/api/changes?actor=all&include_unsent=true'); // drain
+  await humanOp({ op: 'add_node', label: 'Held back' });
+
+  const held = (await api('/api/changes')).body;
+  assert.deepEqual(held.entries, [], 'not released before Send');
+  assert.equal(held.unsent, 1);
+  assert.match(held.summary, /1 unsent change held until the human presses Send/);
+
+  await humanSend();
+  const sent = (await api('/api/changes')).body;
+  assert.deepEqual(sent.entries.map((e: any) => e.op.label), ['Held back']);
+  assert.equal(sent.unsent, 0);
+  assert.ok(!sent.entries.some((e: any) => e.op.op === 'submit'), 'the marker is not a change');
+});
+
+test('include_unsent reads a held change and consumes it', async () => {
+  await api('/api/changes?actor=all&include_unsent=true'); // drain
+  await humanOp({ op: 'add_node', label: 'Asked about in chat' });
+
+  const read = (await api('/api/changes?include_unsent=true')).body;
+  assert.deepEqual(read.entries.map((e: any) => e.op.label), ['Asked about in chat']);
+  assert.equal(read.unsent, 0, 'read is as good as sent');
+  assert.deepEqual((await api('/api/changes')).body.entries, []);
+});
+
+test('Send with nothing unsent records nothing', async () => {
+  await api('/api/changes?actor=all&include_unsent=true'); // drain
+  const before = (await api('/api/changes?since=0&actor=all')).body.rev;
+  const socket = new WebSocket(`ws://localhost:${PORT}/ws`);
+  await new Promise<void>((ok) => socket.on('open', () => ok()));
+  socket.send(JSON.stringify({ type: 'submit' }));
+  await new Promise((r) => setTimeout(r, 200));
+  socket.close();
+  assert.equal((await api('/api/changes?since=0&actor=all')).body.rev, before);
+});
+
+test('wait blocks until the human sends, then returns the batch', async () => {
+  await api('/api/changes?actor=all&include_unsent=true'); // drain
+  const started = Date.now();
+  const pending = api('/api/changes?wait=20');
+  await humanOp({ op: 'add_node', label: 'Waited for' });
+  await new Promise((r) => setTimeout(r, 300));
+  await humanSend();
+
+  const { body } = await pending;
+  assert.deepEqual(body.entries.map((e: any) => e.op.label), ['Waited for']);
+  assert.ok(Date.now() - started < 10_000, 'returned on the send, not on the timeout');
+});
+
+test('wait gives up with an empty batch after its timeout', async () => {
+  await api('/api/changes?actor=all&include_unsent=true'); // drain
+  const started = Date.now();
+  const { body } = await api('/api/changes?wait=1');
+  assert.deepEqual(body.entries, []);
+  assert.ok(Date.now() - started >= 900, 'it did wait');
 });
