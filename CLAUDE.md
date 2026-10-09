@@ -622,6 +622,14 @@ discarded — which surfaces as "selection is broken" or a bare timeout, never a
 separate flaky tests had this one cause. `openCanvas` now calls `settleViewport`, and every
 diagram switch must too.
 
+Edge clicks had it too, made worse by `click({ force: true })`: forcing skips Playwright's
+own hit check, so a click on the bounding-box centre of a path that something else covers is
+discarded with no trace. The arrowhead test timed out on edge selection once and would not
+repeat in 45 runs, so the trigger was never pinned down. Click edges through `clickEdge`,
+which settles the view, picks a point on the drawn line rather than its box, and fails naming
+whatever is under that point. The colour suite had worked around the same failure with a
+retry loop, which it no longer needs.
+
 **The canvas has no error surface.** A dropped interaction just does nothing. Three separate
 defects were invisible for exactly this reason. Verify canvas changes by driving a real
 browser and asserting against the HTTP API — not by reasoning about the code.
