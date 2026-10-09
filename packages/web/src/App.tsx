@@ -25,6 +25,8 @@ export default function App() {
     setError,
     sendOp,
     revert,
+    unsent,
+    submit,
     loadDiagram,
     switchDiagram,
     createDiagram,
@@ -82,6 +84,12 @@ export default function App() {
         return;
       }
 
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        submit();
+        return;
+      }
+
       const key = event.key.toLowerCase();
       // Ctrl+Y as well, because that is what Windows users reach for.
       const redo = (key === 'z' && event.shiftKey) || (key === 'y' && !event.metaKey);
@@ -93,7 +101,7 @@ export default function App() {
 
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [revert]);
+  }, [revert, submit]);
 
   /**
    * Open a node's subcanvas, creating one if it has none.
@@ -299,6 +307,15 @@ export default function App() {
 
         <span className="spacer" />
         {error && <span className="error">{error}</span>}
+        <button
+          type="button"
+          className="send"
+          disabled={unsent === 0}
+          title="Send your changes to the agent (Cmd/Ctrl+Enter)"
+          onClick={submit}
+        >
+          {unsent ? `Send ${unsent}` : 'Sent'}
+        </button>
         <span className="rev">rev {graph?.rev ?? '—'}</span>
         <span className={connected ? 'status ok' : 'status off'}>
           {connected ? 'live' : 'reconnecting…'}

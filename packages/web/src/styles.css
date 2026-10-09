@@ -195,6 +195,18 @@ body,
   background: #eef0f4;
 }
 
+.bar .send:not(:disabled) {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 600;
+}
+
+.bar .send:disabled {
+  color: #9aa3af;
+  cursor: default;
+}
+
 /* Scoped under .bar for the same reason the swatches are: a bare class loses to
    `.bar button` on specificity, which once rendered every swatch as a grey pill. */
 .bar .diagram-switcher {

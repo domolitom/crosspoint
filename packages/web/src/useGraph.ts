@@ -12,6 +12,7 @@ type ServerMessage =
   | { type: 'hello'; clientId: string }
   | { type: 'graph'; diagram: string; graph: Graph; origin?: string }
   | { type: 'diagrams'; active: string; diagrams: DiagramSummary[] }
+  | { type: 'unsent'; count: number }
   | { type: 'error'; error: string };
 
 /**
@@ -33,6 +34,7 @@ export function useGraph() {
   const [diagram, setDiagram] = useState<string | null>(null);
   const [diagrams, setDiagrams] = useState<DiagramSummary[]>([]);
   const [connected, setConnected] = useState(false);
+  const [unsent, setUnsent] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const socket = useRef<WebSocket | null>(null);
   const clientId = useRef<string | null>(null);
@@ -57,7 +59,8 @@ export function useGraph() {
         } else if (msg.type === 'diagrams') {
           setDiagrams(msg.diagrams);
           setDiagram(msg.active);
-        } else if (msg.type === 'error') setError(msg.error);
+        } else if (msg.type === 'unsent') setUnsent(msg.count);
+        else if (msg.type === 'error') setError(msg.error);
       };
       ws.onclose = () => {
         setConnected(false);
@@ -91,6 +94,12 @@ export function useGraph() {
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: direction, diagram: target }));
     }
+  }, []);
+
+  /** Release everything unsent to the agent. Over the socket, so it is the human's. */
+  const submit = useCallback(() => {
+    const ws = socket.current;
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'submit' }));
   }, []);
 
   /**
@@ -156,6 +165,8 @@ export function useGraph() {
     setError,
     sendOp,
     revert,
+    unsent,
+    submit,
     loadDiagram,
     switchDiagram,
     createDiagram,
