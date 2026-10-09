@@ -245,6 +245,34 @@ export async function settleViewport(page: Page): Promise<void> {
   });
 }
 
+/** Click a point on an edge's drawn line once the view is still, failing loudly if it is covered. */
+export async function clickEdge(page: Page, selector: string): Promise<void> {
+  await settleViewport(page);
+  const point = await page.evaluate((sel) => {
+    const edge = document.querySelector(sel);
+    const path = edge?.querySelector('.react-flow__edge-path') as SVGPathElement | null;
+    const matrix = path?.getScreenCTM();
+    if (!edge || !path || !matrix) return null;
+    const p = path.getPointAtLength(path.getTotalLength() / 3);
+    const x = p.x * matrix.a + p.y * matrix.c + matrix.e;
+    const y = p.x * matrix.b + p.y * matrix.d + matrix.f;
+    const hit = document.elementFromPoint(x, y);
+    return {
+      x,
+      y,
+      ours: Boolean(hit && edge.contains(hit)),
+      hit: hit ? `${hit.tagName}.${hit.getAttribute('class')}` : 'nothing',
+      window: `${innerWidth}x${innerHeight}`,
+    };
+  }, selector);
+  assert.ok(point, `${selector} has no drawn path`);
+  assert.ok(
+    point.ours,
+    `${selector} is covered at (${Math.round(point.x)}, ${Math.round(point.y)}) by ${point.hit} in ${point.window}`,
+  );
+  await page.mouse.click(point.x, point.y);
+}
+
 /** Centre of a node in page coordinates, for driving the mouse. */
 export async function nodeCentre(page: Page, id: string) {
   const box = await page.locator(`.react-flow__node[data-id="${id}"]`).boundingBox();

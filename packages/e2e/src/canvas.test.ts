@@ -3,6 +3,7 @@ import { after, before, test } from 'node:test';
 
 import {
   API,
+  clickEdge,
   dragMouse,
   fixtures,
   nodeCentre,
@@ -138,7 +139,7 @@ test('an edge can be clicked and becomes selected', async () => {
   );
   assert.ok(edge);
 
-  await stack.page.locator('.react-flow__edge .react-flow__edge-path').first().click({ force: true });
+  await clickEdge(stack.page, '.react-flow__edge');
 
   await until(
     'the edge to report itself selected',
@@ -158,7 +159,7 @@ test('the Delete key removes a selected edge', async () => {
     (await stack.page.locator(selector).count()) > 0,
   );
 
-  await stack.page.locator(`${selector} .react-flow__edge-path`).click({ force: true });
+  await clickEdge(stack.page, selector);
   await until(
     'that edge to be selected',
     async () => (await stack.page.locator(`${selector}.selected`).count()) > 0,
@@ -184,7 +185,7 @@ test('the × button on a selected edge removes it', async () => {
     (await stack.page.locator(selector).count()) > 0,
   );
 
-  await stack.page.locator(`${selector} .react-flow__edge-path`).click({ force: true });
+  await clickEdge(stack.page, selector);
   await until('the × to appear', async () =>
     (await stack.page.locator('.edge-delete').count()) > 0,
   );
@@ -531,7 +532,7 @@ test('the header sets which ends of a selected edge carry an arrowhead', async (
   const path = stack.page.locator(`${selector} path.react-flow__edge-path`);
   assert.equal(await path.getAttribute('marker-start'), null, 'one arrowhead to begin with');
 
-  await stack.page.locator(`${selector} .react-flow__edge-path`).click({ force: true });
+  await clickEdge(stack.page, selector);
   await until('the edge to report itself selected', async () =>
     (await stack.page.locator(`${selector}.selected`).count()) > 0,
   );
