@@ -44,7 +44,12 @@ export interface Revert {
   target: LoggedOp;
 }
 
-export type LoggedOp = GraphOp | ExternalEdit | Revert | CreateDiagram;
+/** The human pressing Send: everything before it is released to the agent. */
+export interface Submit {
+  op: 'submit';
+}
+
+export type LoggedOp = GraphOp | ExternalEdit | Revert | CreateDiagram | Submit;
 
 /**
  * `layout` is tagged separately so a consumer that only cares about structure can drop
@@ -90,6 +95,30 @@ export interface LogEntry {
  */
 export const withoutLayout = (entries: LogEntry[]): LogEntry[] =>
   entries.filter((entry) => entry.kind !== 'layout');
+
+/** A human change that only reaches the agent once it is sent. */
+const awaitsSend = (e: LogEntry) =>
+  e.actor === 'human' && e.kind !== 'layout' && e.op.op !== 'submit';
+
+/** Rev of the latest Send, or 0 if there has never been one. */
+export const lastSubmitRev = (entries: LogEntry[]): number =>
+  entries.reduce((rev, e) => (e.op.op === 'submit' ? Math.max(rev, e.rev) : rev), 0);
+
+/** Human changes after both the last Send and what the agent has already read. */
+export const unsent = (entries: LogEntry[], watermark: number): LogEntry[] => {
+  const after = Math.max(watermark, lastSubmitRev(entries));
+  return entries.filter((e) => e.rev > after && awaitsSend(e));
+};
+
+/** What a read may release: everything after `watermark` up to the first unsent human change. */
+export const releasable = (entries: LogEntry[], watermark: number): LogEntry[] => {
+  const held = unsent(entries, watermark)[0];
+  return entries.filter((e) => e.rev > watermark && (!held || e.rev < held.rev));
+};
+
+/** Send markers delimit a batch; they are not themselves a change. */
+export const withoutSubmits = (entries: LogEntry[]): LogEntry[] =>
+  entries.filter((e) => e.op.op !== 'submit');
 
 /** `all` is an explicit request for everything, including the agent's own edits. */
 export type ActorFilter = Actor | 'all';
@@ -239,6 +268,8 @@ export function describeOp(op: LoggedOp): string {
       return 'graph file edited outside the server';
     case 'create_diagram':
       return '+ diagram';
+    case 'submit':
+      return 'sent';
     case 'undo':
       return `undid: ${describeOp(op.target)}`;
     case 'redo':

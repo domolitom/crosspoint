@@ -4,7 +4,9 @@ import { test } from 'node:test';
 import {
   describeOp,
   kindOf,
+  releasable,
   summarise,
+  unsent,
   withActor,
   withoutLayout,
   type Actor,
@@ -309,4 +311,47 @@ test('a code reference is named in the feed, in go-to-line shape', () => {
     describeOp({ op: 'update_node', id: 'auth', code: 'none' }),
     '~ node auth code reference cleared',
   );
+});
+
+const attributed = (actor: 'human' | 'agent', e: LogEntry): LogEntry => ({ ...e, actor });
+const revs = (entries: LogEntry[]) => entries.map((e) => e.rev);
+
+test('a human change is held until it is sent', () => {
+  const log = [
+    attributed('agent', entry(1, { op: 'add_node', label: 'drawn' })),
+    attributed('human', entry(2, { op: 'add_node', label: 'retry' })),
+    attributed('agent', entry(3, { op: 'add_node', label: 'later' })),
+  ];
+  assert.deepEqual(revs(releasable(log, 0)), [1], 'stops before the first unsent human change');
+  assert.deepEqual(revs(unsent(log, 0)), [2]);
+
+  const sent = [...log, attributed('human', entry(4, { op: 'submit' }))];
+  assert.deepEqual(revs(releasable(sent, 0)), [1, 2, 3, 4]);
+  assert.deepEqual(unsent(sent, 0), []);
+});
+
+test('changes after a send are held again', () => {
+  const log = [
+    attributed('human', entry(1, { op: 'add_node', label: 'a' })),
+    attributed('human', entry(2, { op: 'submit' })),
+    attributed('human', entry(3, { op: 'delete_node', id: 'a' })),
+  ];
+  assert.deepEqual(revs(releasable(log, 0)), [1, 2]);
+  assert.deepEqual(revs(releasable(log, 2)), [], 'nothing new is sent');
+  assert.deepEqual(revs(unsent(log, 2)), [3]);
+});
+
+test('moves and unattributed entries never wait for a send', () => {
+  const log = [
+    attributed('human', entry(1, { op: 'move_node', id: 'a', position: { x: 15, y: 15 } })),
+    entry(2, { op: 'create_diagram' }),
+  ];
+  assert.deepEqual(revs(releasable(log, 0)), [1, 2]);
+  assert.deepEqual(unsent(log, 0), []);
+});
+
+test('a change the agent already read is no longer unsent', () => {
+  const log = [attributed('human', entry(1, { op: 'add_node', label: 'a' }))];
+  assert.deepEqual(unsent(log, 1), []);
+  assert.equal(describeOp({ op: 'submit' }), 'sent');
 });
