@@ -171,7 +171,12 @@ server.registerTool(
       'request. That has happened. Pass actor: "all" to see everything (each entry then ' +
       'names who did it), or actor: "agent" to review only your own edits. Entries recorded ' +
       'before attribution existed have no actor and are always shown, so an older history ' +
-      'is never silently empty.',
+      'is never silently empty.\n\n' +
+      'BATCHED: the human edits freely and presses Send when they mean it. A no-argument ' +
+      'read returns only what has been sent; `unsent` counts what is still held. Pass ' +
+      'wait_seconds to block until they press Send. If they ask about their edits in chat ' +
+      'without pressing Send, pass include_unsent: true. Never act on a change that was ' +
+      'neither sent nor asked about.',
     inputSchema: {
       since_rev: z
         .number()
@@ -196,11 +201,24 @@ server.registerTool(
             'asking. Use all to see your own edits alongside theirs, or agent to review ' +
             'only what you did.',
         ),
+      include_unsent: z
+        .boolean()
+        .optional()
+        .describe('Also return changes the human has not sent. Use when they ask in chat.'),
+      wait_seconds: z
+        .number()
+        .int()
+        .min(1)
+        .max(300)
+        .optional()
+        .describe('Block until the human presses Send, up to this many seconds.'),
     },
   },
-  async ({ since_rev, include_layout, actor }) => {
+  async ({ since_rev, include_layout, actor, include_unsent, wait_seconds }) => {
     const params = new URLSearchParams();
     if (since_rev !== undefined) params.set('since', String(since_rev));
+    if (include_unsent) params.set('include_unsent', 'true');
+    if (wait_seconds) params.set('wait', String(wait_seconds));
     if (include_layout) params.set('include_layout', 'true');
     if (actor) params.set('actor', actor);
     const query = params.toString();
