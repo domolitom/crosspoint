@@ -383,3 +383,39 @@ test('the body editor grows to wrapped text instead of scrolling', async () => {
   // Select-all here would mean one keystroke wipes everything already written.
   assert.equal(state.selectionStart, state.length, 'the caret belongs at the end, not over it');
 });
+
+// Batched edits: nothing reaches the agent until the human says go.
+test('Send releases held edits to the agent, by button and by shortcut', async () => {
+  const seedIn = await freshDiagram('send-batch');
+  const id = await seedIn('Plan step', 0, 0);
+  const node = stack.page.locator(`.react-flow__node[data-id="${id}"]`);
+  const input = stack.page.locator(`.react-flow__node[data-id="${id}"] .cp-node-input`);
+  const send = stack.page.locator('.bar .send');
+  const feed = async (query = '') => (await fetch(`${API}/api/changes${query}`)).json();
+  const rename = async (label: string) => {
+    await node.dblclick();
+    await until('the rename input to appear', async () => (await input.count()) > 0);
+    await input.fill(label);
+    await stack.page.keyboard.press('Enter');
+    await until('the input to close', async () => (await input.count()) === 0);
+  };
+
+  await feed('?actor=all&include_unsent=true');
+  await until('nothing to be waiting', async () => (await send.isDisabled()) === true);
+
+  await rename('First idea');
+  await until('the button to count the edit', async () => (await send.textContent()) === 'Send 1');
+  assert.deepEqual((await feed()).entries, [], 'held before Send');
+
+  await send.click();
+  await until('the button to clear', async () => (await send.isDisabled()) === true);
+  const sent = await feed();
+  assert.deepEqual(sent.entries.map((e: any) => e.op.label), ['First idea']);
+
+  await rename('Second idea');
+  await until('the button to count again', async () => (await send.textContent()) === 'Send 1');
+  await stack.page.locator('.react-flow__pane').click({ position: { x: 5, y: 5 } });
+  await stack.page.keyboard.press('ControlOrMeta+Enter');
+  await until('the shortcut to send', async () => (await send.isDisabled()) === true);
+  assert.deepEqual((await feed()).entries.map((e: any) => e.op.label), ['Second idea']);
+});
