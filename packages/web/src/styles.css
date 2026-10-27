@@ -813,3 +813,38 @@ body,
 .react-flow__node-default.cp-sized {
   height: auto;
 }
+
+/* Alignment and spacing guides while a node is dragged (#20, #21). */
+.cp-guide,
+.cp-gap {
+  position: absolute;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.cp-guide {
+  border-left: 1px solid #e11d48;
+  border-top: 1px solid #e11d48;
+}
+
+.cp-gap-x {
+  border-top: 1px dashed #e11d48;
+}
+
+.cp-gap-y {
+  border-left: 1px dashed #e11d48;
+}
+
+.cp-gap-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 0 3px;
+  border-radius: 3px;
+  background: #e11d48;
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+}

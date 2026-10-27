@@ -27,6 +27,7 @@ import { strokeFor } from './colors';
 import { ConnectionPreview, ConnectionStartContext, type ConnectionStart } from './ConnectionPreview';
 import { DirectedEdge } from './DirectedEdge';
 import { dropTarget, handleId, nearestPoint, parseHandle, rectOf, type EndPoint } from './edgePoints';
+import { Guides, useGuides } from './guides';
 import { LabelInput } from './LabelInput';
 
 /**
@@ -248,18 +249,23 @@ function GraphCanvasInner({
     onSelectionChange?.({ nodes: selectedNodes.current, edges: selectedEdges.current });
   }, [onSelectionChange]);
 
+  const guides = useGuides(useCallback((id: string) => dragging.current.has(id), []));
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       // Applied locally so dragging stays at 60fps. Only drag-stop is persisted —
       // intermediate positions are animation, not data.
+      const snapped = guides.apply(changes, nodesRef.current);
       setNodes((ns) => {
-        const next = applyNodeChanges(changes, ns);
+        const next = applyNodeChanges(snapped, ns);
         selectedNodes.current = next.filter((n) => n.selected).map((n) => n.id);
         reportSelection();
         return next;
       });
     },
-    [reportSelection],
+    [reportSelection, guides.apply],
   );
 
   const onEdgesChange = useCallback(
@@ -288,12 +294,15 @@ function GraphCanvasInner({
     (_: unknown, node: Node, dragged: Node[]) => {
       // One narrow op per node rather than a batch op, consistent with everything else
       // here. N revs for one gesture is fine: persistence is debounced to a single write.
+      // React Flow hands back the raw drag position; the one the guides placed it at wins.
       for (const each of dragged?.length ? dragged : [node]) {
         dragging.current.delete(each.id);
-        emit({ op: 'move_node', id: each.id, position: each.position });
+        const { position, exact } = guides.take(each.id, each.position);
+        emit({ op: 'move_node', id: each.id, position, ...(exact ? { exact } : {}) });
       }
+      guides.clear();
     },
-    [emit],
+    [emit, guides.take, guides.clear],
   );
 
   /*
@@ -642,11 +651,10 @@ function GraphCanvasInner({
       onEdgeDoubleClick={onEdgeDoubleClick}
       // Double-click creates a node, so it must not also zoom the canvas.
       zoomOnDoubleClick={false}
-      snapToGrid
-      snapGrid={[15, 15]}
       fitView
     >
       <Background gap={15} />
+      <Guides snap={guides.snap} />
       {variant === 'main' && <MiniMap pannable />}
       {variant === 'main' && <Controls />}
     </ReactFlow>
