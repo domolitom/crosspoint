@@ -11,3 +11,4 @@ export * from './ids.js';
 export * from './ops.js';
 export * from './placement.js';
 export * from './serialize.js';
+export * from './check.js';
