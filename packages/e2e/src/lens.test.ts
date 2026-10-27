@@ -511,3 +511,29 @@ test('a dragged panel is remembered, and double-clicking the bar re-anchors it',
     return box ? Math.abs(box.x - moved.x) > 50 : false;
   });
 });
+
+test('the corner badges leave the border free to start an arrow', async () => {
+  const id = await seed('Corner badges', 600, 900);
+  await openCanvas(stack);
+  const node = stack.page.locator(`.react-flow__node[data-id="${id}"]`);
+  const box = (await node.boundingBox())!;
+  await stack.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await until('the badges to show', async () =>
+    (await node.locator('.cp-lens').evaluate((el) => getComputedStyle(el).opacity)) === '1',
+  );
+
+  const right = box.x + box.width;
+  const probes = {
+    'top, under the lens': [right - 8, box.y],
+    'right, under the lens': [right, box.y + 8],
+    'top, under the body button': [box.x + 8, box.y],
+    'left, under the body button': [box.x, box.y + 8],
+  };
+  for (const [where, [x, y]] of Object.entries(probes)) {
+    const hit = await stack.page.evaluate(
+      ([x, y]) => document.elementFromPoint(x, y)?.className.toString() ?? 'nothing',
+      [x, y],
+    );
+    assert.match(hit, /cp-band/, `${where}: ${hit}`);
+  }
+});
