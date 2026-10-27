@@ -839,6 +839,168 @@ test('dropping an end back on the midpoint clears its offset', async () => {
   });
 });
 
+const zoom = () =>
+  stack.page.$eval('.react-flow__viewport', (el) => new DOMMatrix(getComputedStyle(el).transform).a);
+
+/**
+ * Drag a node so its flow position becomes `to`, look at the canvas mid-drag, then drop.
+ * Returns what was on screen while the mouse was still down.
+ */
+async function dragTo(id: string, to: { x: number; y: number }, opts: { alt?: boolean } = {}) {
+  const start = await nodeCentre(stack.page, id);
+  const from = await flowRect(id);
+  const z = await zoom();
+  const end = { x: start.x + (to.x - from.x) * z, y: start.y + (to.y - from.y) * z };
+
+  if (opts.alt) await stack.page.keyboard.down('Alt');
+  await stack.page.mouse.move(start.x, start.y);
+  await stack.page.mouse.down();
+  // Released on every path: a button left down hangs the rest of the suite.
+  try {
+    // React Flow takes its reference from the first move and drops that move's distance, so
+    // start with a 1px nudge and aim 1px further to cancel it.
+    await stack.page.mouse.move(start.x + 1, start.y + 1);
+    await stack.page.mouse.move((start.x + end.x) / 2 + 1, (start.y + end.y) / 2 + 1, { steps: 6 });
+    await stack.page.mouse.move(end.x + 1, end.y + 1, { steps: 6 });
+    // The move resolves before React draws its result; read the guides a frame later.
+    await stack.page.evaluate(
+      () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+    );
+    return {
+      guides: await stack.page.locator('.cp-guide').count(),
+      gaps: await stack.page.locator('.cp-gap-label').allTextContents(),
+      at: await flowRect(id),
+      aimed: to,
+      zoom: z,
+    };
+  } finally {
+    await stack.page.mouse.up();
+    if (opts.alt) await stack.page.keyboard.up('Alt');
+  }
+}
+
+/** Frame every node: seeding after the diagram opened can leave boxes off-screen at zoom 2. */
+async function fit() {
+  await stack.page.locator('.react-flow__controls-fitview').click();
+  await settleViewport(stack.page);
+}
+
+async function storedRect(diagram: string, id: string) {
+  const node = await until(`${id} to settle on the server`, async () => {
+    const g = await stack.graph(diagram);
+    const n = g.nodes.find((each: any) => each.id === id);
+    return n && !(await stack.page.locator('.cp-guide, .cp-gap').count()) ? n : null;
+  });
+  const { w, h } = await flowRect(id);
+  return { x: node.position.x, y: node.position.y, w, h };
+}
+
+/*
+ * Alignment guides (#20). Each drag ends just inside the snap distance — a whole guide-width
+ * away would prove nothing — and the stored position is checked to the pixel, because the
+ * server's grid snap could otherwise move an aligned box straight back off its line.
+ */
+test('dragging near another top edge shows a guide and lands on it', async () => {
+  const seedIn = await freshDiagram('align-top')
+  const a = await seedIn('Align top A', 0, 0);
+  const b = await seedIn('Align top B', 300, 150);
+  await fit();
+  const target = await flowRect(a);
+
+  const during = await dragTo(b, { x: 300, y: target.y + 1 })
+  assert.ok(during.guides > 0, 'a guide while the box is near the line');
+
+  const placed = await storedRect('align-top', b)
+  assert.equal(placed.y, target.y);
+  assert.equal(await stack.page.locator('.cp-guide').count(), 0, 'guides go on drop');
+});
+
+test('right edges of boxes with different widths line up, off the grid', async () => {
+  const seedIn = await freshDiagram('align-right');
+  const a = await seedIn('A much wider box than the other', 0, 0);
+  const b = await seedIn('Short', 0, 150);
+  await fit();
+  const wide = await flowRect(a);
+  const short = await flowRect(b);
+  const right = wide.x + wide.w;
+
+  const during = await dragTo(b, { x: right - short.w + 1, y: 150 });
+  assert.ok(during.guides > 0);
+
+  const placed = await storedRect('align-right', b);
+  assert.ok(Math.abs(placed.x + placed.w - right) <= 1, `right edges at ${right} and ${placed.x + placed.w}`);
+});
+
+test('centres line up too', async () => {
+  const seedIn = await freshDiagram('align-centre');
+  const a = await seedIn('A centred over something', 0, 0);
+  const b = await seedIn('Mid', 0, 150);
+  await fit();
+  const wide = await flowRect(a);
+  const narrow = await flowRect(b);
+  const centre = wide.x + wide.w / 2;
+
+  const during = await dragTo(b, { x: centre - narrow.w / 2 + 1, y: 150 });
+  assert.ok(during.guides > 0, 'a guide on the shared centre');
+
+  const placed = await storedRect('align-centre', b);
+  assert.ok(Math.abs(placed.x + placed.w / 2 - centre) <= 1, `centres at ${centre} and ${placed.x + placed.w / 2}`);
+});
+
+test('holding Alt places the box without snapping to a guide', async () => {
+  const seedIn = await freshDiagram('align-alt');
+  const a = await seedIn('A much wider box than the other', 0, 0);
+  const b = await seedIn('Short', 0, 150);
+  await fit();
+  const wide = await flowRect(a);
+  const short = await flowRect(b);
+  const right = wide.x + wide.w;
+  // Only test if the aligned spot is off the grid, or the grid lands on it by chance.
+  assert.ok((right - short.w) % 15 !== 0, 'fixture must put the aligned spot off the grid');
+
+  const during = await dragTo(b, { x: right - short.w + 1, y: 150 }, { alt: true });
+  assert.equal(during.guides, 0, 'no guide with Alt held');
+
+  const placed = await storedRect('align-alt', b);
+  assert.equal(placed.x % 15, 0, 'the grid, not the guide');
+});
+
+/* Equal-spacing guides (#21). */
+test('a box dragged into a row snaps to the gap the row already uses', async () => {
+  const seedIn = await freshDiagram('spacing-row');
+  const a = await seedIn('Gap A', 0, 0);
+  const b = await seedIn('Gap B', 180, 0);
+  const c = await seedIn('Gap C', 600, 0);
+  await fit();
+  const ra = await flowRect(a);
+  const rb = await flowRect(b);
+  const gap = rb.x - (ra.x + ra.w);
+
+  const during = await dragTo(c, { x: rb.x + rb.w + gap + 1, y: 0 });
+  assert.ok(during.gaps.includes(String(Math.round(gap))), `a ${gap} marker, saw ${during.gaps.join(', ')}`);
+
+  const placed = await storedRect('spacing-row', c);
+  assert.ok(Math.abs(placed.x - (rb.x + rb.w + gap)) <= 1, `C at ${placed.x}, expected ${rb.x + rb.w + gap}`);
+  assert.equal(await stack.page.locator('.cp-gap').count(), 0, 'markers go on drop');
+});
+
+test('a box dragged into a column snaps to the gap the column already uses', async () => {
+  const seedIn = await freshDiagram('spacing-column');
+  const a = await seedIn('Col A', 0, 0);
+  const b = await seedIn('Col B', 0, 120);
+  const c = await seedIn('Col C', 0, 400);
+  await fit();
+  const ra = await flowRect(a);
+  const rb = await flowRect(b);
+  const gap = rb.y - (ra.y + ra.h);
+
+  const during = await dragTo(c, { x: 0, y: rb.y + rb.h + gap + 1 });
+  assert.ok(during.gaps.includes(String(Math.round(gap))), `a ${gap} marker, saw ${during.gaps.join(', ')}`);
+
+  const placed = await storedRect('spacing-column', c);
+  assert.ok(Math.abs(placed.y - (rb.y + rb.h + gap)) <= 1, `C at ${placed.y}, expected ${rb.y + rb.h + gap}`);
+});
+
 /**
  * A code reference must reach the canvas and survive the next push. The node rebuild once
  * picked out `label` alone, and anything else in `data` vanished on the following frame.
