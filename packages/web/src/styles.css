@@ -396,6 +396,8 @@ body,
   padding: 10px 12px;
   border-radius: 8px;
   border-color: #cbd2dc;
+  --cp-fill: #fff;
+  --cp-stroke: #cbd2dc;
   font-size: 13px;
   line-height: 18px;
   /* Long words must break rather than punch through the max-width. */
@@ -444,26 +446,38 @@ body,
 .react-flow__node.cp-color-slate {
   background: #f1f5f9;
   border-color: #94a3b8;
+  --cp-fill: #f1f5f9;
+  --cp-stroke: #94a3b8;
 }
 .react-flow__node.cp-color-amber {
   background: #fef3c7;
   border-color: #d97706;
+  --cp-fill: #fef3c7;
+  --cp-stroke: #d97706;
 }
 .react-flow__node.cp-color-red {
   background: #fee2e2;
   border-color: #dc2626;
+  --cp-fill: #fee2e2;
+  --cp-stroke: #dc2626;
 }
 .react-flow__node.cp-color-green {
   background: #dcfce7;
   border-color: #16a34a;
+  --cp-fill: #dcfce7;
+  --cp-stroke: #16a34a;
 }
 .react-flow__node.cp-color-blue {
   background: #dbeafe;
   border-color: #2563eb;
+  --cp-fill: #dbeafe;
+  --cp-stroke: #2563eb;
 }
 .react-flow__node.cp-color-violet {
   background: #ede9fe;
   border-color: #7c3aed;
+  --cp-fill: #ede9fe;
+  --cp-stroke: #7c3aed;
 }
 
 /*
@@ -868,4 +882,97 @@ body,
   font-weight: 600;
   color: #64748b;
   white-space: nowrap;
+}
+
+/* Node kinds (#25). Extra padding here must match KIND_EXTRA in core's placement. */
+.react-flow__node.cp-kind-database {
+  border-radius: 50% / 8px;
+  padding-top: 18px;
+}
+
+.react-flow__node.cp-kind-database::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  right: -1px;
+  height: 16px;
+  border: 1px solid var(--cp-stroke);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.react-flow__node.cp-kind-queue {
+  border-radius: 18px / 50%;
+}
+
+/* The near end of a cylinder on its side, so a queue never reads as an actor's pill. */
+.react-flow__node.cp-kind-queue::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  right: -1px;
+  width: 18px;
+  border: 1px solid var(--cp-stroke);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.react-flow__node.cp-kind-actor {
+  border-radius: 999px;
+}
+
+.react-flow__node.cp-kind-actor .cp-node-label::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  vertical-align: -2px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='4.5' r='3.5'/%3E%3Cpath d='M1 16c0-4 3-6.5 7-6.5s7 2.5 7 6.5z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='4.5' r='3.5'/%3E%3Cpath d='M1 16c0-4 3-6.5 7-6.5s7 2.5 7 6.5z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* Pointed sides: the left and right midpoints are the points, so arrows land on them. */
+.react-flow__node.cp-kind-decision {
+  padding-left: 26px;
+  padding-right: 26px;
+  background: transparent;
+  border-color: transparent;
+  isolation: isolate;
+}
+
+.react-flow__node.cp-kind-decision::before,
+.react-flow__node.cp-kind-decision::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 14px 100%, 0 50%);
+}
+
+.react-flow__node.cp-kind-decision::before {
+  inset: -1px;
+  background: var(--cp-stroke);
+}
+
+.react-flow__node.cp-kind-decision::after {
+  inset: 0;
+  background: var(--cp-fill);
+}
+
+.react-flow__node.cp-kind-external {
+  border-style: dashed;
+}
+
+.react-flow__node.cp-kind-note {
+  border-radius: 2px;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+.react-flow__node.cp-kind-note:not([class*='cp-color-']) {
+  background: #fef9c3;
+  border-color: #eab308;
 }

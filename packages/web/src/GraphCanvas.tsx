@@ -165,7 +165,11 @@ function GraphCanvasInner({
           // `cp-sized` releases the auto-sizing clamp. Inline width alone is not enough:
           // `max-width: 320px` still applies and silently pinned a 900px node back to 320,
           // so dragging a node wider appeared to snap back.
-          className: [color ? `cp-color-${color}` : '', node.size ? 'cp-sized' : '']
+          className: [
+            color ? `cp-color-${color}` : '',
+            node.data.kind ? `cp-kind-${node.data.kind}` : '',
+            node.size ? 'cp-sized' : '',
+          ]
             .filter(Boolean)
             .join(' ') || undefined,
           // A pinned size becomes an explicit width and a *minimum* height: the width is
