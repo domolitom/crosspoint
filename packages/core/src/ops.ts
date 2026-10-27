@@ -545,14 +545,16 @@ function pasteInto(graph: Graph, op: Extract<GraphOp, { op: 'paste' }>): Graph {
       if (side === ('auto' as string)) throw new GraphError('A pasted side cannot be "auto"');
       requireSide(side);
     }
+    requireAt(pasted.sourceAt, pasted.sourceSide);
+    requireAt(pasted.targetAt, pasted.targetSide);
     const id = uniqueId(`${source}->${target}`, edgeIds);
     edgeIds.add(id);
     const edge: GraphEdge = { id, source, target };
     if (pasted.label) edge.label = pasted.label;
     if (pasted.color && pasted.color !== ('none' as string)) edge.color = pasted.color;
     if (pasted.arrow && pasted.arrow !== 'forward') edge.arrow = pasted.arrow;
-    if (pasted.sourceSide) edge.sourceSide = pasted.sourceSide;
-    if (pasted.targetSide) edge.targetSide = pasted.targetSide;
+    if (pasted.sourceSide) pinEnd(edge, 'source', pasted.sourceSide, pasted.sourceAt);
+    if (pasted.targetSide) pinEnd(edge, 'target', pasted.targetSide, pasted.targetAt);
     return attachDefaults(edge, placed);
   });
 

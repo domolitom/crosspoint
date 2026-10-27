@@ -221,6 +221,8 @@ export interface PastedEdge {
   arrow?: EdgeArrow;
   sourceSide?: EdgeSide;
   targetSide?: EdgeSide;
+  sourceAt?: number;
+  targetAt?: number;
 }
 
 /**

@@ -20,7 +20,7 @@ export function copySelection(graph: Graph, ids: Iterable<string>): Clip | null 
   const kept = new Set(nodes.map((n) => n.ref));
   const edges: PastedEdge[] = graph.edges
     .filter((e) => kept.has(e.source) && kept.has(e.target))
-    .map(({ source, target, label, color, arrow, sourceSide, targetSide }) => ({
+    .map(({ source, target, label, color, arrow, sourceSide, targetSide, sourceAt, targetAt }) => ({
       source,
       target,
       ...(label !== undefined ? { label } : {}),
@@ -28,6 +28,8 @@ export function copySelection(graph: Graph, ids: Iterable<string>): Clip | null 
       ...(arrow !== undefined ? { arrow } : {}),
       ...(sourceSide !== undefined ? { sourceSide } : {}),
       ...(targetSide !== undefined ? { targetSide } : {}),
+      ...(sourceAt !== undefined ? { sourceAt } : {}),
+      ...(targetAt !== undefined ? { targetAt } : {}),
     }));
   return { nodes, edges };
 }

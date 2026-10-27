@@ -114,3 +114,16 @@ test('paste is canvas-only but stays in the feed', () => {
   assert.equal(withoutLayout([entry]).length, 1);
   assert.equal(describeOp(op), '+ pasted 2 nodes ("Auth", "Db"), 1 edge');
 });
+
+test('a pasted edge keeps a point pinned along a side', () => {
+  let g = build();
+  g = applyOp(g, { op: 'attach_edge', id: 'auth->db', source: 'bottom', target: 'top', sourceAt: 0.3, targetAt: 0.8 });
+  const copy = paste(g, ['auth', 'db']).edges.find((e) => e.id === 'auth-2->db-2')!;
+  assert.equal(copy.sourceAt, 0.3);
+  assert.equal(copy.targetAt, 0.8);
+  assert.throws(
+    () => applyOp(g, { op: 'paste', nodes: copySelection(g, ['auth', 'db'])!.nodes, edges: [{ source: 'auth', target: 'db', sourceAt: 0.3 }] }),
+    GraphError,
+    'an offset needs its side',
+  );
+});
