@@ -3,6 +3,7 @@ import { after, before, test } from 'node:test';
 
 import {
   API,
+  clickEdge,
   fixtures,
   openCanvas,
   settleViewport,
@@ -219,7 +220,7 @@ test('double-clicking an edge edits its label in place', async () => {
   const path = `.react-flow__edge[data-id="${edgeId}"] .react-flow__edge-path`;
   await until('the edge to render', async () => (await stack.page.locator(path).count()) > 0);
 
-  await stack.page.locator(path).dblclick({ force: true });
+  await clickEdge(stack.page, `.react-flow__edge[data-id="${edgeId}"]`, 2);
   await stack.page.waitForSelector('.cp-edge-input');
   await awaitFocus('.cp-edge-input');
   await stack.page.keyboard.type('reads from');
@@ -258,7 +259,7 @@ test('emptying an edge label removes it rather than storing an empty string', as
 
 test('double-clicking an edge does not also create a node', async () => {
   const before = (await stack.graph('edge-label')).nodes.length;
-  await stack.page.locator('.react-flow__edge .react-flow__edge-path').first().dblclick({ force: true });
+  await clickEdge(stack.page, '.react-flow__edge', 2);
   await stack.page.waitForTimeout(400);
   await stack.page.keyboard.press('Escape');
   assert.equal(

@@ -246,7 +246,7 @@ export async function settleViewport(page: Page): Promise<void> {
 }
 
 /** Click a point on an edge's drawn line once the view is still, failing loudly if it is covered. */
-export async function clickEdge(page: Page, selector: string): Promise<void> {
+export async function clickEdge(page: Page, selector: string, clickCount = 1): Promise<void> {
   await settleViewport(page);
   const point = await page.evaluate((sel) => {
     const edge = document.querySelector(sel);
@@ -270,7 +270,7 @@ export async function clickEdge(page: Page, selector: string): Promise<void> {
     point.ours,
     `${selector} is covered at (${Math.round(point.x)}, ${Math.round(point.y)}) by ${point.hit} in ${point.window}`,
   );
-  await page.mouse.click(point.x, point.y);
+  await page.mouse.click(point.x, point.y, { clickCount });
 }
 
 /** Centre of a node in page coordinates, for driving the mouse. */
