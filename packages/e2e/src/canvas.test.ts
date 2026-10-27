@@ -672,6 +672,146 @@ test('an edge end can be grabbed and moved to another point', async () => {
   assertOnPoint(await pathEnd(id), points(await flowRect(b)).top, 'after re-pointing');
 });
 
+type Side = 'top' | 'right' | 'bottom' | 'left';
+
+/** A point `at` of the way along one side of a box, in whichever coordinates the box is in. */
+function along(box: { x: number; y: number; w: number; h: number }, side: Side, at = 0.5) {
+  if (side === 'top') return { x: box.x + box.w * at, y: box.y };
+  if (side === 'bottom') return { x: box.x + box.w * at, y: box.y + box.h };
+  if (side === 'left') return { x: box.x, y: box.y + box.h * at };
+  return { x: box.x + box.w, y: box.y + box.h * at };
+}
+
+/** The same point on screen, for the mouse. */
+async function onBorder(id: string, side: Side, at = 0.5) {
+  const box = await stack.page.locator(`.react-flow__node[data-id="${id}"]`).boundingBox();
+  assert.ok(box, `node ${id} has no box`);
+  return along({ x: box.x, y: box.y, w: box.width, h: box.height }, side, at);
+}
+
+async function targetAnchor(edgeId: string) {
+  const box = await stack.page
+    .locator(`.react-flow__edge[data-id="${edgeId}"] .react-flow__edgeupdater-target`)
+    .boundingBox();
+  assert.ok(box, `edge ${edgeId} has no target anchor`);
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+const near = (actual: number | undefined, expected: number, what: string) =>
+  assert.ok(
+    actual !== undefined && Math.abs(actual - expected) <= 0.02,
+    `${what}: expected about ${expected}, got ${actual}`,
+  );
+
+/** Two boxes and an edge whose target sits three quarters of the way along B's top. */
+async function offsetEdge(name: string) {
+  const seedIn = await freshDiagram(name);
+  const a = await seedIn(`${name} A`, 0, 0);
+  const b = await seedIn(`${name} B`, 240, 0);
+  await settleViewport(stack.page);
+  // Drawn rather than sent: edge points are canvas-only, so `/api/op` refuses them.
+  await dragMouse(stack.page, await onBorder(a, 'right'), await onBorder(b, 'top', 0.75));
+  const id = `${a}->${b}`;
+  await until('the offset edge to reach the server', async () => {
+    const e = await stack.graph(name).then((g: any) => g.edges[0]);
+    return e?.targetAt !== undefined;
+  });
+  await stack.op({ op: 'update_edge', id, label: 'reads' }, name);
+  await until('the edge to render', async () =>
+    (await stack.page.locator(`.react-flow__edge[data-id="${id}"]`).count()) > 0,
+  );
+  return { seedIn, a, b, id };
+}
+
+/*
+ * Anywhere on a border (#19). The four midpoints stay the predefined points, and everything
+ * above still uses them; these cover the points in between.
+ */
+test('an edge can start and end anywhere on a border', async () => {
+  const seedIn = await freshDiagram('anywhere');
+  const a = await seedIn('Anywhere A', 0, 0);
+  const b = await seedIn('Anywhere B', 240, 0);
+  await settleViewport(stack.page);
+
+  await dragMouse(stack.page, await onBorder(a, 'top', 0.25), await onBorder(b, 'top', 0.75));
+
+  const edge = await until('the edge to reach the server', async () => {
+    const graph = await stack.graph('anywhere');
+    return graph.edges.find((e: any) => e.source === a && e.target === b) ?? null;
+  });
+  assert.equal(edge.sourceSide, 'top');
+  near(edge.sourceAt, 0.25, 'start');
+  assert.equal(edge.targetSide, 'top');
+  near(edge.targetAt, 0.75, 'end');
+
+  await until('the line to render on both points', async () => {
+    const start = await pathStart(edge.id);
+    const end = await pathEnd(edge.id);
+    const from = along(await flowRect(a), 'top', edge.sourceAt);
+    const to = along(await flowRect(b), 'top', edge.targetAt);
+    return Math.hypot(start.x - from.x, start.y - from.y) < 4 && Math.hypot(end.x - to.x, end.y - to.y) < 4;
+  });
+});
+
+test('an end off the midpoint keeps its place along the side when the box is resized', async () => {
+  const { b, id } = await offsetEdge('offset-resize');
+
+  await stack.op({ op: 'resize_node', id: b, size: { w: 300, h: 90 } }, 'offset-resize');
+
+  await until('the end to follow the resize', async () => {
+    const box = await flowRect(b);
+    const end = await pathEnd(id);
+    const want = along(box, 'top', 0.75);
+    return box.w >= 290 && Math.hypot(end.x - want.x, end.y - want.y) < 4;
+  });
+});
+
+test('an end can be moved to any point of the same box without changing the edge', async () => {
+  const { b, id } = await offsetEdge('offset-slide');
+
+  await dragMouse(stack.page, await targetAnchor(id), await onBorder(b, 'bottom', 0.3));
+
+  const edge = await until('the new point to reach the server', async () => {
+    const e = await stack.graph('offset-slide').then((g: any) => g.edges[0]);
+    return e?.targetSide === 'bottom' ? e : null;
+  });
+  assert.equal(edge.id, id, 'a re-point, not a reconnect');
+  near(edge.targetAt, 0.3, 'end');
+});
+
+test('an end dropped on another box lands on the point it was dropped on, in one op', async () => {
+  const { seedIn, a, id } = await offsetEdge('offset-move');
+  const c = await seedIn('offset-move C', 240, 150);
+  await settleViewport(stack.page);
+  const before = await stack.graph('offset-move');
+
+  await dragMouse(stack.page, await targetAnchor(id), await onBorder(c, 'left', 0.8));
+
+  const edge = await until('the reconnect to reach the server', async () => {
+    const e = await stack.graph('offset-move').then((g: any) => g.edges[0]);
+    return e?.target === c ? e : null;
+  });
+  assert.equal(edge.id, `${a}->${c}`);
+  assert.equal(edge.targetSide, 'left');
+  near(edge.targetAt, 0.8, 'end');
+  assert.equal(edge.label, 'reads', 'the label survives the move');
+
+  const feed = await (await fetch(`${API}/api/changes?since=${before.rev}`)).json();
+  const ops = feed.entries.map((e: any) => e.op.op);
+  assert.deepEqual(ops, ['reconnect_edge_at'], 'one op, so one undo step');
+});
+
+test('dropping an end back on the midpoint clears its offset', async () => {
+  const { b, id } = await offsetEdge('offset-reset');
+
+  await dragMouse(stack.page, await targetAnchor(id), await onBorder(b, 'top'));
+
+  await until('the offset to clear', async () => {
+    const e = await stack.graph('offset-reset').then((g: any) => g.edges[0]);
+    return e?.targetSide === 'top' && e.targetAt === undefined;
+  });
+});
+
 /**
  * A code reference must reach the canvas and survive the next push. The node rebuild once
  * picked out `label` alone, and anything else in `data` vanished on the following frame.
