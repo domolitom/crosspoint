@@ -23,6 +23,7 @@ import { type Graph, type GraphOp, type NodeColor, type Position } from '@crossp
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { CanvasNode } from './CanvasNode';
+import { useClipboard } from './clipboard';
 import { strokeFor } from './colors';
 import { ConnectionPreview, ConnectionStartContext, type ConnectionStart } from './ConnectionPreview';
 import { DirectedEdge } from './DirectedEdge';
@@ -473,6 +474,26 @@ function GraphCanvasInner({
    * on the way down, before the pane sees the event at all.
    */
   const wrapper = useRef<HTMLDivElement>(null);
+
+  const selectPasted = useCallback(
+    (fresh: Set<string>, freshEdges: Set<string>) => {
+      setNodes((ns) => ns.map((n) => ({ ...n, selected: fresh.has(n.id) })));
+      setEdges((es) => es.map((e) => ({ ...e, selected: freshEdges.has(e.id) })));
+      selectedNodes.current = [...fresh];
+      selectedEdges.current = [...freshEdges];
+      reportSelection();
+    },
+    [reportSelection],
+  );
+
+  useClipboard({
+    wrapper,
+    graph,
+    main: variant === 'main',
+    selectedNodes,
+    emit,
+    select: selectPasted,
+  });
 
   const onDoubleClickCapture = useCallback(
     (event: MouseEvent) => {

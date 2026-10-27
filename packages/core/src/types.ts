@@ -204,6 +204,25 @@ export interface GeneratedEdge {
   color?: ColorInput;
 }
 
+/** A node in a `paste`. `ref` is the copied node's id, used only to wire up `edges`. */
+export interface PastedNode {
+  ref: string;
+  position: Position;
+  size?: Size;
+  data: NodeData;
+}
+
+/** An edge in a `paste`, its ends naming `PastedNode.ref`s. */
+export interface PastedEdge {
+  source: string;
+  target: string;
+  label?: string;
+  color?: NodeColor;
+  arrow?: EdgeArrow;
+  sourceSide?: EdgeSide;
+  targetSide?: EdgeSide;
+}
+
 /**
  * Mutations, split by who is allowed to issue them.
  *
@@ -300,6 +319,8 @@ export type LayoutOp =
   /** `exact` keeps a guide-aligned position off the grid, rounded to a whole pixel. */
   | { op: 'move_node'; id: string; position: Position; exact?: boolean }
   | { op: 'add_node_at'; label: string; position: Position; data?: Record<string, unknown> }
+  /** Copied nodes and the edges among them, in one op. The server assigns every id. */
+  | { op: 'paste'; nodes: PastedNode[]; edges: PastedEdge[] }
   /** Pin a node's size. Pixels, so canvas-only — an agent cannot express one. */
   | { op: 'resize_node'; id: string; size: Size }
   /**
@@ -346,6 +367,7 @@ export type GraphOp = StructuralOp | LayoutOp;
 const LAYOUT_OPS = new Set([
   'move_node',
   'add_node_at',
+  'paste',
   'resize_node',
   'add_edge_at',
   'attach_edge',

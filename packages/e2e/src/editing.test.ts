@@ -419,3 +419,103 @@ test('Send releases held edits to the agent, by button and by shortcut', async (
   await until('the shortcut to send', async () => (await send.isDisabled()) === true);
   assert.deepEqual((await feed()).entries.map((e: any) => e.op.label), ['Second idea']);
 });
+
+// Copy and paste: one op per paste, ids from the server, the copies selected.
+const select = async (...ids: string[]) => {
+  for (const [i, id] of ids.entries()) {
+    await stack.page
+      .locator(`.react-flow__node[data-id="${id}"]`)
+      .click(i === 0 ? {} : { modifiers: ['ControlOrMeta'] });
+  }
+  await until('the selection to take', async () =>
+    (await stack.page.locator('.react-flow__node.selected').count()) === ids.length,
+  );
+};
+
+test('a pasted node keeps its data under a new id, and ends up selected', async () => {
+  const seedIn = await freshDiagram('paste-one');
+  const id = await seedIn('Copy me', 0, 0);
+  await stack.op(
+    { op: 'update_node', id, body: 'two\nlines', color: 'amber', code: { file: 'src/a.ts', lines: '3' } },
+    'paste-one',
+  );
+  await stack.op({ op: 'resize_node', id, size: { w: 240, h: 90 } }, 'paste-one');
+  await until('the colour to render', async () =>
+    (await stack.page.locator(`.react-flow__node[data-id="${id}"].cp-color-amber`).count()) > 0,
+  );
+
+  await select(id);
+  await stack.page.keyboard.press('ControlOrMeta+c');
+  await stack.page.keyboard.press('ControlOrMeta+v');
+
+  const g = await until('the copy to exist', async () => {
+    const g = await stack.graph('paste-one');
+    return g.nodes.length === 2 ? g : null;
+  });
+  const [original, copy] = g.nodes;
+  assert.equal(copy.id, 'copy-me-2', 'slugified from the label by the server');
+  assert.deepEqual(copy.data, original.data);
+  assert.deepEqual(copy.size, original.size);
+  assert.deepEqual(copy.position, { x: original.position.x + 30, y: original.position.y + 30 });
+
+  await until('the copy, and only the copy, to be selected', async () =>
+    (await stack.page.locator(`.react-flow__node[data-id="${copy.id}"].selected`).count()) === 1 &&
+    (await stack.page.locator('.react-flow__node.selected').count()) === 1,
+  );
+});
+
+test('pasting two connected nodes copies the edge between them and no other', async () => {
+  const seedIn = await freshDiagram('paste-two');
+  const a = await seedIn('Alpha', 0, 0);
+  const b = await seedIn('Beta', 300, 0);
+  const c = await seedIn('Gamma', 0, 300);
+  await stack.op({ op: 'add_edge', source: a, target: b, label: 'calls', arrow: 'both' }, 'paste-two');
+  await stack.op({ op: 'add_edge', source: b, target: c }, 'paste-two');
+  await stack.op({ op: 'add_edge', source: c, target: a }, 'paste-two');
+  await until('the edges to render', async () =>
+    (await stack.page.locator('.react-flow__edge').count()) === 3,
+  );
+  await settleViewport(stack.page);
+  const before = await stack.graph('paste-two');
+
+  await select(a, b);
+  await stack.page.keyboard.press('ControlOrMeta+c');
+  await stack.page.keyboard.press('ControlOrMeta+v');
+
+  const g = await until('the paste to land', async () => {
+    const g = await stack.graph('paste-two');
+    return g.nodes.length === 5 ? g : null;
+  });
+  assert.deepEqual(g.nodes.slice(3).map((n: any) => n.id), ['alpha-2', 'beta-2']);
+  const added = g.edges.filter((e: any) => !before.edges.some((x: any) => x.id === e.id));
+  assert.equal(added.length, 1, 'edges to the unselected node stay behind');
+  assert.equal(added[0].source, 'alpha-2');
+  assert.equal(added[0].target, 'beta-2');
+  assert.equal(added[0].label, 'calls');
+  assert.equal(added[0].arrow, 'both');
+
+  const feed = await (await fetch(`${API}/api/changes?since=${before.rev}&actor=all`)).json();
+  const entries = feed.entries.filter((e: any) => e.diagram === 'paste-two');
+  assert.deepEqual(entries.map((e: any) => e.op.op), ['paste'], 'one paste is one feed entry');
+});
+
+test('Cmd+Z after a paste removes the whole paste', async () => {
+  await stack.page.keyboard.press('ControlOrMeta+z');
+  const g = await until('the paste to be undone', async () => {
+    const g = await stack.graph('paste-two');
+    return g.nodes.length === 3 ? g : null;
+  });
+  assert.deepEqual(g.nodes.map((n: any) => n.data.label), ['Alpha', 'Beta', 'Gamma']);
+  assert.equal(g.edges.length, 3);
+});
+
+test('paste leaves a focused text field alone', async () => {
+  const before = await stack.graph('paste-two');
+  await stack.page.locator('.react-flow__node[data-id="alpha"]').dblclick();
+  await stack.page.waitForSelector('.cp-node-input');
+  await awaitFocus('.cp-node-input');
+  await stack.page.keyboard.press('ControlOrMeta+v');
+  await stack.page.waitForTimeout(300);
+  assert.equal((await stack.graph('paste-two')).rev, before.rev, 'nothing was pasted');
+  await stack.page.keyboard.press('Escape');
+});
