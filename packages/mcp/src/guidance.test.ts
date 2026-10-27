@@ -27,11 +27,19 @@ const RULES: [string, RegExp][] = [
   ['LR for sequences', /"LR"/],
   ['colour carries meaning', /colou?r[^.]*meaning/i],
   ['group related boxes', /group/],
+  ['check your own work', /check_layout/],
 ];
 
 test('the server instructions carry the rules for a diagram that reads well', () => {
   const instructions = client.getInstructions() ?? '';
   for (const [rule, pattern] of RULES) assert.match(instructions, pattern, rule);
+});
+
+test('check_layout is offered, read-only and scoped to a diagram', async () => {
+  const { tools } = await client.listTools();
+  const check = tools.find((t) => t.name === 'check_layout');
+  assert.ok(check, 'check_layout is listed');
+  assert.deepEqual(Object.keys(check.inputSchema.properties ?? {}), ['diagram']);
 });
 
 test('generate_graph repeats them where the agent decides what to draw', async () => {

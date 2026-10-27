@@ -37,7 +37,8 @@ const GUIDANCE =
   '- Label an edge only when the relationship is not obvious ("on failure", "reads").\n' +
   '- Give related boxes a group ("Frontend", "Backend", "Data") so they are laid out ' +
   'together inside a labelled container.\n' +
-  '- One diagram per topic: create_diagram with a name that says what it is.';
+  '- One diagram per topic: create_diagram with a name that says what it is.\n' +
+  '- After generating, call check_layout and fix what it names.';
 
 const server = new McpServer(
   { name: 'crosspoint', version: '0.1.0' },
@@ -178,6 +179,27 @@ server.registerTool(
     const query = diagram ? `?diagram=${encodeURIComponent(diagram)}` : '';
     return ok(await call(`${base}${query}`));
   },
+);
+
+server.registerTool(
+  'check_layout',
+  {
+    title: 'Check layout',
+    description:
+      'Look at a diagram the way a reader would, and list what they would trip over. You ' +
+      'cannot see the canvas, so call this after generate_graph or a batch of edits.\n\n' +
+      'Each problem names the boxes and edges involved:\n' +
+      '- overlap: two boxes on top of each other. Ask the human, or regenerate.\n' +
+      '- crossing: two edges cross. Often fixed by regenerating with the other direction.\n' +
+      '- through: an edge runs through a box it does not connect.\n' +
+      '- stray: a box sits inside a group it does not belong to. Give it that group, or regenerate.\n' +
+      '- long: an edge far longer than the rest. Consider a group or a subcanvas.\n\n' +
+      'Read-only. Fixing a hand-arranged diagram is the human\'s call: report the problems ' +
+      'rather than regenerating over their work.',
+    inputSchema: { diagram: diagramParam },
+  },
+  async ({ diagram }) =>
+    ok(await call(`/api/check${diagram ? `?diagram=${encodeURIComponent(diagram)}` : ''}`)),
 );
 
 server.registerTool(
