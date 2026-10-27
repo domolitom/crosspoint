@@ -43,6 +43,8 @@ revision per node.
 - **Check your own work.** You cannot see the canvas, so call `check_layout` after
   generating. It names overlaps, crossings, edges through boxes, strays and long edges; fix
   what you drew, and report rather than regenerate over anything the human arranged.
+- **Give a node a kind when it is one.** `database`, `queue`, `actor`, `decision`,
+  `external` or `note` draw as shapes. Leave ordinary steps and services plain.
 - **Group related boxes.** Give nodes a `group` ("Frontend", "Backend", "Data") and they are
   laid out together inside one labelled container.
 - **Pick the direction from the shape.** `direction: "LR"` for sequences, pipelines and
