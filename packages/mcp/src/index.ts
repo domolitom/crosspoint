@@ -22,7 +22,30 @@ import { ensureServer } from './autostart.js';
 
 const SERVER = process.env.CROSSPOINT_SERVER ?? 'http://localhost:4000';
 
-const server = new McpServer({ name: 'crosspoint', version: '0.1.0' });
+/** What makes a generated diagram read well. Sent as the server instructions and on `generate_graph`. */
+const GUIDANCE =
+  'A diagram that reads well:\n' +
+  '- Keep it to about 15 boxes or fewer. When a step has its own internal detail, give that ' +
+  'node a subcanvas with create_subdiagram and generate the detail there, rather than ' +
+  'inflating the parent.\n' +
+  '- Labels are a few words ("Validate token", not a sentence). Put longer explanation in ' +
+  'the node body.\n' +
+  '- Pick the direction from the shape: "LR" for sequences, pipelines and request/response ' +
+  'flows; "TB" (the default) for trees, hierarchies and control flow.\n' +
+  '- Colour carries meaning, not decoration: amber for attention, red for broken or blocked, ' +
+  'green for done. Use it sparingly and say what each colour means.\n' +
+  '- Label an edge only when the relationship is not obvious ("on failure", "reads").\n' +
+  '- One diagram per topic: create_diagram with a name that says what it is.';
+
+const server = new McpServer(
+  { name: 'crosspoint', version: '0.1.0' },
+  {
+    instructions:
+      'Crosspoint is a live diagram the user can see and edit. Draw with generate_graph, ' +
+      'read their edits back with get_changes.\n\n' +
+      GUIDANCE,
+  },
+);
 
 /**
  * A refused connection is the one failure worth acting on rather than reporting: the human
@@ -275,7 +298,8 @@ server.registerTool(
       'an edge naming that id would silently attach to the wrong node.\n\n' +
       'It refuses to overwrite a diagram that already has nodes. Pass replace: true when ' +
       'you genuinely mean to discard what is there — a human may have spent real time on ' +
-      'it. Prefer generating into an empty diagram when you can.',
+      'it. Prefer generating into an empty diagram when you can.\n\n' +
+      GUIDANCE,
     inputSchema: {
       nodes: z
         .array(
