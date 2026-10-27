@@ -24,6 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { CanvasNode } from './CanvasNode';
 import { useClipboard } from './clipboard';
+import { Groups } from './groups';
 import { strokeFor } from './colors';
 import { ConnectionPreview, ConnectionStartContext, type ConnectionStart } from './ConnectionPreview';
 import { DirectedEdge } from './DirectedEdge';
@@ -675,6 +676,7 @@ function GraphCanvasInner({
       fitView
     >
       <Background gap={15} />
+      <Groups nodes={nodes} />
       <Guides snap={guides.snap} />
       {variant === 'main' && <MiniMap pannable />}
       {variant === 'main' && <Controls />}

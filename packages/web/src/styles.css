@@ -849,3 +849,23 @@ body,
   line-height: 14px;
   white-space: nowrap;
 }
+
+/* Behind edges and nodes, and click-through so the pane still takes a double-click. */
+.cp-group {
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  border: 1px dashed #94a3b8;
+  border-radius: 12px;
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.cp-group-label {
+  position: absolute;
+  top: 4px;
+  left: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  white-space: nowrap;
+}
