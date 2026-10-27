@@ -35,6 +35,8 @@ const GUIDANCE =
   '- Colour carries meaning, not decoration: amber for attention, red for broken or blocked, ' +
   'green for done. Use it sparingly and say what each colour means.\n' +
   '- Label an edge only when the relationship is not obvious ("on failure", "reads").\n' +
+  '- Give a node a kind when it is one: database, queue, actor, decision, external or ' +
+  'note. Leave ordinary steps and services plain.\n' +
   '- Give related boxes a group ("Frontend", "Backend", "Data") so they are laid out ' +
   'together inside a labelled container.\n' +
   '- One diagram per topic: create_diagram with a name that says what it is.\n' +
@@ -138,6 +140,14 @@ const groupSchema = z
   .describe(
     'Name of a group this node belongs to, such as "Backend" or "Data". Members are laid ' +
       'out together and drawn inside one labelled container.',
+  );
+
+const kindSchema = z
+  .enum(['database', 'queue', 'actor', 'decision', 'external', 'note', 'none'])
+  .describe(
+    'What the node is, drawn as a shape: database (cylinder), queue (capsule), actor ' +
+      '(a person or role), decision (a branch point), external (a system you do not own, ' +
+      'dashed), note (an annotation). "none" makes it a plain box again.',
   );
 
 const arrowSchema = z
@@ -308,10 +318,11 @@ server.registerTool(
       color: colorSchema.optional(),
       code: codeSchema.optional(),
       group: groupSchema.optional(),
+      kind: kindSchema.optional(),
     },
   },
-  async ({ label, body, near, color, code, group }) =>
-    ok(await applyOp({ op: 'add_node', label, body, near, color, code, group })),
+  async ({ label, body, near, color, code, group, kind }) =>
+    ok(await applyOp({ op: 'add_node', label, body, near, color, code, group, kind })),
 );
 
 server.registerTool(
@@ -345,6 +356,7 @@ server.registerTool(
             color: colorSchema.optional(),
             code: codeSchema.optional(),
             group: groupSchema.optional(),
+            kind: kindSchema.optional(),
           }),
         )
         .min(1)
@@ -451,11 +463,14 @@ server.registerTool(
         .min(1)
         .optional()
         .describe('Move this node into a named group. Pass "none" to take it out.'),
+      kind: kindSchema.optional(),
       diagram: diagramParam,
     },
   },
-  async ({ id, label, body, color, subcanvas, code, group, diagram }) =>
-    ok(await applyOp({ op: 'update_node', id, label, body, color, subcanvas, code, group }, diagram)),
+  async ({ id, label, body, color, subcanvas, code, group, kind, diagram }) =>
+    ok(
+      await applyOp({ op: 'update_node', id, label, body, color, subcanvas, code, group, kind }, diagram),
+    ),
 );
 
 server.registerTool(

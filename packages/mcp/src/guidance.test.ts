@@ -28,6 +28,7 @@ const RULES: [string, RegExp][] = [
   ['colour carries meaning', /colou?r[^.]*meaning/i],
   ['group related boxes', /group/],
   ['check your own work', /check_layout/],
+  ['shapes for what a node is', /database, queue, actor/],
 ];
 
 test('the server instructions carry the rules for a diagram that reads well', () => {
