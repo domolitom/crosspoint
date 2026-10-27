@@ -467,7 +467,10 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
 
     case 'move_node': {
       const node = requireNode(graph, op.id, 'id');
-      const position = snapPosition(op.position);
+      // An alignment guide wins over the grid, or the server would snap the box off its line.
+      const position = op.exact
+        ? { x: Math.round(op.position.x), y: Math.round(op.position.y) }
+        : snapPosition(op.position);
       // A nudge smaller than the grid snaps back to where the node already was, so this is
       // the position it already holds. Nothing changed; say so.
       if (node.position?.x === position.x && node.position?.y === position.y) return graph;

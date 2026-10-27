@@ -297,7 +297,8 @@ export type StructuralOp =
  * the guarantee this file exists to keep.
  */
 export type LayoutOp =
-  | { op: 'move_node'; id: string; position: Position }
+  /** `exact` keeps a guide-aligned position off the grid, rounded to a whole pixel. */
+  | { op: 'move_node'; id: string; position: Position; exact?: boolean }
   | { op: 'add_node_at'; label: string; position: Position; data?: Record<string, unknown> }
   /** Pin a node's size. Pixels, so canvas-only — an agent cannot express one. */
   | { op: 'resize_node'; id: string; size: Size }

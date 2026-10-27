@@ -746,6 +746,17 @@ test('a sub-grid nudge is absorbed, not applied', () => {
   assert.equal(nudged.rev, g.rev, 'and no rev, or the feed gains an entry for nothing');
 });
 
+// A guide-aligned drop (#20) must not be snapped off its line by the grid.
+test('an exact move keeps the position off the grid, to the whole pixel', () => {
+  const g = applyOp(build(), { op: 'move_node', id: 'database', position: { x: 604.4, y: 297.6 }, exact: true });
+  assert.deepEqual(g.nodes.find((n) => n.id === 'database')!.position, { x: 604, y: 298 });
+  assert.equal(
+    applyOp(g, { op: 'move_node', id: 'database', position: { x: 604.2, y: 298 }, exact: true }),
+    g,
+    'the same pixel is still absorbed',
+  );
+});
+
 test('moving a node to the position it already holds is absorbed', () => {
   const g = applyOp(build(), { op: 'move_node', id: 'database', position: { x: 600, y: 300 } });
   assert.equal(applyOp(g, { op: 'move_node', id: 'database', position: { x: 600, y: 300 } }), g);
