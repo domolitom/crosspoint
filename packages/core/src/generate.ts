@@ -107,6 +107,7 @@ function dataFor(node: GeneratedNode): NodeData {
   if (node.color && node.color !== 'none') data.color = node.color;
   if (node.code && node.code !== 'none') data.code = node.code;
   if (node.group) data.group = node.group;
+  if (node.kind && node.kind !== 'none') data.kind = node.kind;
   return data;
 }
 

@@ -1,5 +1,5 @@
 import { describeCode } from './changes.js';
-import { AT_MAX, AT_MIN, type CodeRef, type EdgeSide, type GraphNode, type Position, type Size } from './types.js';
+import { AT_MAX, AT_MIN, type CodeRef, type EdgeSide, type GraphNode, type NodeKind, type Position, type Size } from './types.js';
 
 /**
  * Seed placement for nodes that arrive without coordinates.
@@ -90,7 +90,22 @@ const withCode = (text: string, code?: CodeRef) =>
  * footprint smaller than the box on screen — reintroducing the overlap that size-aware
  * placement was written to fix, by a different route.
  */
+/** Room a shape takes beyond the text box. Must match the padding in the canvas CSS. */
+export const KIND_EXTRA: Partial<Record<NodeKind, Size>> = {
+  database: { w: 0, h: 8 },
+  actor: { w: 20, h: 0 },
+  decision: { w: 28, h: 0 },
+};
+
 export function nodeSize(node: GraphNode): Size {
+  const base = textSize(node);
+  // A pinned size is the whole box the human chose, shape included.
+  if (node.size) return base;
+  const extra = KIND_EXTRA[node.data.kind as NodeKind] ?? { w: 0, h: 0 };
+  return { w: base.w + extra.w, h: base.h + extra.h };
+}
+
+function textSize(node: GraphNode): Size {
   const text = nodeText(node);
   if (node.size) {
     // A pinned size is a floor, not a cage. Text that outgrows the box makes the box taller

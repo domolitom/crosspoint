@@ -233,6 +233,8 @@ export function describeOp(op: LoggedOp): string {
       else if (op.code) parts.push(`→ ${describeCode(op.code)}`);
       if (op.group === 'none') parts.push('ungrouped');
       else if (op.group) parts.push(`grouped ${op.group}`);
+      if (op.kind === 'none') parts.push('kind cleared');
+      else if (op.kind) parts.push(`drawn as ${op.kind}`);
       if (op.data) parts.push('data');
       return `~ node ${op.id} ${parts.length ? parts.join(', ') : 'data'}`;
     }

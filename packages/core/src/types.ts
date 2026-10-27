@@ -52,6 +52,11 @@ export type NodeColor = (typeof NODE_COLORS)[number];
 /** What an op may ask for. `none` clears the colour and is never itself stored. */
 export type ColorInput = NodeColor | 'none';
 
+/** What a node is, drawn as a shape. Stored by name, like colour. */
+export const NODE_KINDS = ['database', 'queue', 'actor', 'decision', 'external', 'note'] as const;
+
+export type NodeKind = (typeof NODE_KINDS)[number];
+
 /**
  * Which ends of an edge carry an arrowhead.
  *
@@ -131,6 +136,8 @@ export interface NodeData {
   code?: CodeRef;
   /** The named group this node belongs to, drawn as a container around its members. */
   group?: string;
+  /** Absent means a plain box. */
+  kind?: NodeKind;
   [key: string]: unknown;
 }
 
@@ -201,6 +208,7 @@ export interface GeneratedNode {
   color?: ColorInput;
   code?: CodeInput;
   group?: string;
+  kind?: NodeKind | 'none';
   data?: Record<string, unknown>;
 }
 
@@ -250,6 +258,7 @@ export type StructuralOp =
       color?: ColorInput;
       code?: CodeInput;
       group?: string;
+      kind?: NodeKind | 'none';
       data?: Record<string, unknown>;
     }
   | {
@@ -279,6 +288,8 @@ export type StructuralOp =
       code?: CodeInput;
       /** Put this node in a named group. `none` takes it out. */
       group?: string | 'none';
+      /** Draw this node as a shape. `none` makes it a plain box again. */
+      kind?: NodeKind | 'none';
       data?: Record<string, unknown>;
     }
   | {

@@ -10,6 +10,7 @@ import {
   EDGE_ARROWS,
   EDGE_SIDES,
   NODE_COLORS,
+  NODE_KINDS,
   type CodeInput,
   type ColorInput,
   type EdgeArrow,
@@ -20,6 +21,7 @@ import {
   type GraphNode,
   type GraphOp,
   type NodeData,
+  type NodeKind,
   type PlacedNode,
 } from './types.js';
 
@@ -36,6 +38,16 @@ function requireColor(color: unknown): void {
   if (typeof color !== 'string' || !(NODE_COLORS as readonly string[]).includes(color)) {
     throw new GraphError(
       `Unknown colour "${String(color)}" — expected one of ${NODE_COLORS.join(', ')}, or "none"`,
+    );
+  }
+}
+
+/** Reject an unknown kind rather than storing it — the same door colour has. */
+function requireKind(kind: unknown): void {
+  if (kind === undefined || kind === 'none') return;
+  if (typeof kind !== 'string' || !(NODE_KINDS as readonly string[]).includes(kind)) {
+    throw new GraphError(
+      `Unknown kind "${String(kind)}" — expected one of ${NODE_KINDS.join(', ')}, or "none"`,
     );
   }
 }
@@ -76,6 +88,7 @@ function mergeNodeData(
     subcanvas?: string | 'none';
     code?: CodeInput;
     group?: string | 'none';
+    kind?: NodeKind | 'none';
     data?: Record<string, unknown>;
   },
 ): NodeData {
@@ -94,6 +107,8 @@ function mergeNodeData(
   else if (change.subcanvas !== undefined) data.subcanvas = change.subcanvas;
   if (change.group === 'none') delete data.group;
   else if (change.group !== undefined) data.group = change.group;
+  if (change.kind === 'none') delete data.kind;
+  else if (change.kind !== undefined) data.kind = change.kind;
   return data;
 }
 
@@ -254,6 +269,7 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       requireColor(op.color);
       requireCode(op.code);
       requireGroup(op.group);
+      requireKind(op.kind);
       const taken = new Set(graph.nodes.map((n) => n.id));
       const id = uniqueId(slugify(op.label), taken);
       const node: GraphNode = {
@@ -325,6 +341,7 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       requireColor(op.color);
       requireCode(op.code);
       requireGroup(op.group);
+      requireKind(op.kind);
       return {
         ...next,
         nodes: graph.nodes.map((n) =>
@@ -437,6 +454,7 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
         requireCode(node.code);
         if (node.group === 'none') throw new GraphError('A new node has no group to clear');
         requireGroup(node.group);
+        requireKind(node.kind);
       }
       for (const edge of op.edges) requireColor(edge.color);
       if (op.direction !== undefined && !(DIRECTIONS as readonly string[]).includes(op.direction)) {
@@ -531,7 +549,7 @@ function pasteInto(graph: Graph, op: Extract<GraphOp, { op: 'paste' }>): Graph {
 
   for (const pasted of op.nodes) {
     if (ids.has(pasted.ref)) throw new GraphError(`Pasted ref "${pasted.ref}" appears twice`);
-    const { label, body, color, code, subcanvas, group, ...rest } = pasted.data ?? ({} as NodeData);
+    const { label, body, color, code, subcanvas, group, kind, ...rest } = pasted.data ?? ({} as NodeData);
     if (typeof label !== 'string' || label.trim() === '') {
       throw new GraphError('A pasted node needs a label');
     }
@@ -542,13 +560,14 @@ function pasteInto(graph: Graph, op: Extract<GraphOp, { op: 'paste' }>): Graph {
     requireColor(color);
     requireCode(code);
     requireGroup(group);
+    requireKind(kind);
     const id = uniqueId(slugify(label), taken);
     taken.add(id);
     ids.set(pasted.ref, id);
     const node: PlacedNode = {
       id,
       position: snapPosition(pasted.position),
-      data: mergeNodeData({ label }, { body, color, code, subcanvas, group, data: rest }),
+      data: mergeNodeData({ label }, { body, color, code, subcanvas, group, kind, data: rest }),
     };
     if (pasted.size) node.size = snapSize(pasted.size);
     added.push(node);
