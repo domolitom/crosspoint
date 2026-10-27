@@ -38,7 +38,11 @@ revision per node.
 - **Nodes are steps or components; edges are dependency or flow.** Put the relationship on the
   edge label — `calls`, `on failure`, `needs` — rather than leaving the reader to infer it.
 - **Keep labels short.** They render in a box that caps at 320px and wraps. "Validate input"
-  reads; a sentence does not.
+  reads; a sentence does not. Explanation goes in the node `body`.
+- **About 15 boxes or fewer.** Past that, move detail into subcanvases (see Nesting).
+- **Pick the direction from the shape.** `direction: "LR"` for sequences, pipelines and
+  request/response flows; the default `TB` for trees and control flow. A long chain in `TB`
+  is one tall column.
 
 ### Colour carries meaning, so use it consistently
 
@@ -72,7 +76,8 @@ you think it looks untidy.
 
 Practical consequence worth warning them about: hierarchical layout handles chains well and
 handles **many edges converging on one node** badly — the labels collide in the band above it.
-When you generate something with that shape, say so and suggest they drag the nodes apart.
+When you generate something with that shape, try `LR` first, then say so and suggest they
+drag the nodes apart.
 That is the loop working, not a failure.
 
 ## Reading their edits — the half that matters
