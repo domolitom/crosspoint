@@ -305,11 +305,20 @@ server.registerTool(
         .boolean()
         .optional()
         .describe('Discard the existing diagram. Required if it has any nodes.'),
+      direction: z
+        .enum(['TB', 'LR', 'BT', 'RL'])
+        .optional()
+        .describe(
+          'Which way the graph flows. "TB" (the default) runs top to bottom, which suits ' +
+            'control flow and trees. "LR" runs left to right, which reads better for long ' +
+            'chains, pipelines and request/response sequences, where TB gives one tall ' +
+            'column. "BT" and "RL" are the reverses.',
+        ),
       diagram: diagramParam,
     },
   },
-  async ({ nodes, edges, replace, diagram }) =>
-    ok(await applyOp({ op: 'generate_graph', nodes, edges, replace }, diagram)),
+  async ({ nodes, edges, replace, direction, diagram }) =>
+    ok(await applyOp({ op: 'generate_graph', nodes, edges, replace, direction }, diagram)),
 );
 
 server.registerTool(
