@@ -75,6 +75,7 @@ function mergeNodeData(
     color?: ColorInput;
     subcanvas?: string | 'none';
     code?: CodeInput;
+    group?: string | 'none';
     data?: Record<string, unknown>;
   },
 ): NodeData {
@@ -91,7 +92,17 @@ function mergeNodeData(
   else if (change.body !== undefined) data.body = change.body;
   if (change.subcanvas === 'none') delete data.subcanvas;
   else if (change.subcanvas !== undefined) data.subcanvas = change.subcanvas;
+  if (change.group === 'none') delete data.group;
+  else if (change.group !== undefined) data.group = change.group;
   return data;
+}
+
+/** A group is a one-line name, like a label: it is shown on the container. */
+export function requireGroup(group: unknown): void {
+  if (group === undefined || group === 'none') return;
+  if (typeof group !== 'string' || group.trim() === '' || /[\r\n]/.test(group)) {
+    throw new GraphError(`A group must be a one-line name, got ${JSON.stringify(group)}`);
+  }
 }
 
 /**
@@ -242,6 +253,7 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
     case 'add_node': {
       requireColor(op.color);
       requireCode(op.code);
+      requireGroup(op.group);
       const taken = new Set(graph.nodes.map((n) => n.id));
       const id = uniqueId(slugify(op.label), taken);
       const node: GraphNode = {
@@ -251,6 +263,7 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
           label: op.label,
           body: op.body,
           code: op.code === 'none' ? undefined : op.code,
+          group: op.group === 'none' ? undefined : op.group,
         }),
         data: mergeNodeData({ label: op.label }, op),
       };
@@ -311,6 +324,7 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       requireNode(graph, op.id, 'id');
       requireColor(op.color);
       requireCode(op.code);
+      requireGroup(op.group);
       return {
         ...next,
         nodes: graph.nodes.map((n) =>
@@ -421,6 +435,8 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       for (const node of op.nodes) {
         requireColor(node.color);
         requireCode(node.code);
+        if (node.group === 'none') throw new GraphError('A new node has no group to clear');
+        requireGroup(node.group);
       }
       for (const edge of op.edges) requireColor(edge.color);
       if (op.direction !== undefined && !(DIRECTIONS as readonly string[]).includes(op.direction)) {
@@ -515,7 +531,7 @@ function pasteInto(graph: Graph, op: Extract<GraphOp, { op: 'paste' }>): Graph {
 
   for (const pasted of op.nodes) {
     if (ids.has(pasted.ref)) throw new GraphError(`Pasted ref "${pasted.ref}" appears twice`);
-    const { label, body, color, code, subcanvas, ...rest } = pasted.data ?? ({} as NodeData);
+    const { label, body, color, code, subcanvas, group, ...rest } = pasted.data ?? ({} as NodeData);
     if (typeof label !== 'string' || label.trim() === '') {
       throw new GraphError('A pasted node needs a label');
     }
@@ -525,13 +541,14 @@ function pasteInto(graph: Graph, op: Extract<GraphOp, { op: 'paste' }>): Graph {
     }
     requireColor(color);
     requireCode(code);
+    requireGroup(group);
     const id = uniqueId(slugify(label), taken);
     taken.add(id);
     ids.set(pasted.ref, id);
     const node: PlacedNode = {
       id,
       position: snapPosition(pasted.position),
-      data: mergeNodeData({ label }, { body, color, code, subcanvas, data: rest }),
+      data: mergeNodeData({ label }, { body, color, code, subcanvas, group, data: rest }),
     };
     if (pasted.size) node.size = snapSize(pasted.size);
     added.push(node);

@@ -106,6 +106,7 @@ function dataFor(node: GeneratedNode): NodeData {
   // `none` is an instruction to clear, and there is nothing to clear on a new node.
   if (node.color && node.color !== 'none') data.color = node.color;
   if (node.code && node.code !== 'none') data.code = node.code;
+  if (node.group) data.group = node.group;
   return data;
 }
 
@@ -145,7 +146,7 @@ function runDagre(
   edges: GeneratedEdge[],
   direction: Direction,
 ): { positions: { x: number; y: number }[]; sizes: { width: number; height: number }[] } {
-  const g = new dagre.graphlib.Graph();
+  const g = new dagre.graphlib.Graph({ compound: true });
   g.setGraph({
     rankdir: direction,
     nodesep: NODE_SEPARATION,
@@ -162,6 +163,12 @@ function runDagre(
     height: estimateNodeHeight(node.label),
   }));
   ids.forEach((id, index) => g.setNode(id, { ...sizes[index] }));
+  // A cluster per group keeps its members together. Node ids are slugs, so no colon clash.
+  nodes.forEach((node, index) => {
+    if (!node.group) return;
+    g.setNode(`group:${node.group}`, {});
+    g.setParent(ids[index], `group:${node.group}`);
+  });
   for (const edge of edges) g.setEdge(edge.source, edge.target);
 
   dagre.layout(g);

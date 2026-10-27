@@ -1,4 +1,5 @@
 export * from './types.js';
+export * from './groups.js';
 export * from './arrange.js';
 export * from './changes.js';
 export * from './clipboard.js';

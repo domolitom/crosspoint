@@ -129,6 +129,8 @@ export interface NodeData {
   subcanvas?: string;
   /** The code this node stands for, if any. Absent means the node is only a concept. */
   code?: CodeRef;
+  /** The named group this node belongs to, drawn as a container around its members. */
+  group?: string;
   [key: string]: unknown;
 }
 
@@ -198,6 +200,7 @@ export interface GeneratedNode {
   id?: string;
   color?: ColorInput;
   code?: CodeInput;
+  group?: string;
   data?: Record<string, unknown>;
 }
 
@@ -246,6 +249,7 @@ export type StructuralOp =
       body?: string;
       color?: ColorInput;
       code?: CodeInput;
+      group?: string;
       data?: Record<string, unknown>;
     }
   | {
@@ -273,6 +277,8 @@ export type StructuralOp =
       subcanvas?: string | 'none';
       /** Point this node at code. `none` clears the reference. */
       code?: CodeInput;
+      /** Put this node in a named group. `none` takes it out. */
+      group?: string | 'none';
       data?: Record<string, unknown>;
     }
   | {

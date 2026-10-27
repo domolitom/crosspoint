@@ -145,6 +145,8 @@ export interface PlacementHint {
   body?: string;
   /** Its code reference, which renders as one more line. */
   code?: CodeRef;
+  /** Its group, so it lands beside the other members. */
+  group?: string;
 }
 
 /**
@@ -199,6 +201,11 @@ function resolveAnchor(
       const height = nodeSize(target).h;
       return { x: target.position.x, y: target.position.y + height + GAP };
     }
+  }
+  const members = nodes.filter((n) => n.position && n.data.group === hint.group);
+  if (hint.group && members.length > 0) {
+    const last = members.map((n) => boxFor(n.position!, n)).reduce((a, b) => (b.x + b.w > a.x + a.w ? b : a));
+    return { x: last.x + last.w + GAP, y: last.y };
   }
   if (placed.length === 0) return { x: 0, y: 0 };
 
