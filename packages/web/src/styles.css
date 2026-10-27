@@ -585,6 +585,94 @@ body,
   opacity: 1;
 }
 
+/* A band along the whole side, so an edge starts anywhere on the border; the dot drawn at
+   its centre is the predefined point. */
+.react-flow__node .react-flow__handle.cp-band {
+  opacity: 1;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  cursor: crosshair;
+}
+
+/* 6px deep like the old dot, because React Flow takes an end from the handle box's outer
+   edge; `::before` widens only the grab area to the 8px band. */
+.react-flow__handle.cp-band-top,
+.react-flow__handle.cp-band-bottom {
+  width: 100%;
+  height: 6px;
+}
+
+.react-flow__handle.cp-band-left,
+.react-flow__handle.cp-band-right {
+  width: 6px;
+  height: 100%;
+}
+
+.react-flow__handle.cp-band::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+}
+
+.react-flow__handle.cp-band::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  transform: translate(-50%, -50%);
+  border-radius: 100%;
+  background: var(--xy-handle-background-color-default);
+  border: 1px solid var(--xy-handle-border-color-default);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.react-flow__node:hover .react-flow__handle.cp-band::after,
+.react-flow__node.selected .react-flow__handle.cp-band::after {
+  opacity: 1;
+}
+
+/* Where an edge is attached off-midpoint. Measured by React Flow, never seen or grabbed. */
+.react-flow__node .react-flow__handle.cp-anchor {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cp-connection-dot {
+  fill: #2563eb;
+  stroke: #fff;
+  stroke-width: 1;
+}
+
+.cp-point-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 100%;
+  background: #2563eb;
+  border: 1px solid #fff;
+  pointer-events: none;
+}
+
+.cp-point-dot {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+}
+
+/* Resizing a selected box beats starting an edge from its border; the node's own buttons
+   beat both. */
+.react-flow__node .react-flow__resize-control {
+  z-index: 2;
+}
+
+.react-flow__node .cp-lens,
+.react-flow__node .cp-body-add {
+  z-index: 3;
+}
+
 /* Scoped under `.bar` for the same reason the swatches are: a bare `.arrow-option` loses
    on specificity to the toolbar's own button rule and every option renders as a grey pill. */
 .bar .arrows {

@@ -1,6 +1,15 @@
-import { Handle, NodeResizer, Position, type Node, type NodeProps } from '@xyflow/react';
-import { describeCode, type CodeRef } from '@crosspoint/core';
+import {
+  Handle,
+  NodeResizer,
+  Position,
+  useUpdateNodeInternals,
+  type Node,
+  type NodeProps,
+} from '@xyflow/react';
+import { borderPoint, describeCode, type CodeRef } from '@crosspoint/core';
+import { useEffect, useState, type PointerEvent } from 'react';
 
+import { handleId, pointStyle, type EndPoint } from './edgePoints';
 import { LabelInput } from './LabelInput';
 
 /**
@@ -40,6 +49,8 @@ export type CanvasNodeData = {
   /** Floor for the resizer, mirroring the core clamp. */
   minWidth?: number;
   minHeight?: number;
+  /** Off-midpoint points that edges are attached to, each rendered as its own handle. */
+  anchors?: EndPoint[];
 };
 
 /**
@@ -53,12 +64,11 @@ export type CanvasNodeData = {
 const isTable = (body: string) => body.split('\n').some((line) => line.trimStart().startsWith('|'));
 
 /**
- * A connection point per side, every one of them a `source`.
+ * A band per side, every one of them a `source`.
  *
- * The canvas runs in `ConnectionMode.Loose`, so any of these also accepts an incoming edge —
- * which is what lets a drag start from whichever side faces the other node. Which side an
- * edge is *drawn* on is computed in `DirectedEdge`, never stored: a saved side would be
- * geometry in the document, and layout is the human's, not the file's.
+ * Each band spans its whole side, so an edge can start anywhere on the border; its centre is
+ * the side's midpoint, so an end bound to the plain side id still lands on the predefined
+ * point. `ConnectionMode.Loose` lets any of them receive an edge too.
  */
 const SIDES = [
   ['top', Position.Top],
@@ -67,8 +77,21 @@ const SIDES = [
   ['left', Position.Left],
 ] as const;
 
-export function CanvasNode({ data, selected }: NodeProps<Node<CanvasNodeData>>) {
+export function CanvasNode({ id, data, selected }: NodeProps<Node<CanvasNodeData>>) {
   const linked = Boolean(data.subcanvas);
+  const [hover, setHover] = useState<EndPoint | null>(null);
+
+  // React Flow measures handles only when told to, so a new attachment point needs a nudge.
+  const updateNodeInternals = useUpdateNodeInternals();
+  const anchorKey = (data.anchors ?? []).map((a) => handleId(a.side, a.at)).join();
+  useEffect(() => updateNodeInternals(id), [id, anchorKey, updateNodeInternals]);
+
+  const trackBand = (event: PointerEvent) => {
+    const node = (event.currentTarget as HTMLElement).closest('.react-flow__node');
+    if (!node) return;
+    const r = node.getBoundingClientRect();
+    setHover(borderPoint({ x: r.left, y: r.top, w: r.width, h: r.height }, { x: event.clientX, y: event.clientY }));
+  };
 
   return (
     <>
@@ -86,9 +109,33 @@ export function CanvasNode({ data, selected }: NodeProps<Node<CanvasNodeData>>) 
           )
         }
       />
-      {SIDES.map(([id, position]) => (
-        <Handle key={id} id={id} type="source" position={position} />
+      {SIDES.map(([side, position]) => (
+        <Handle
+          key={side}
+          id={side}
+          type="source"
+          position={position}
+          className={`cp-band cp-band-${side}`}
+          onPointerMove={trackBand}
+          onPointerLeave={() => setHover(null)}
+        />
       ))}
+      {data.anchors?.map((anchor) => (
+        <Handle
+          key={handleId(anchor.side, anchor.at)}
+          id={handleId(anchor.side, anchor.at)}
+          type="source"
+          position={anchor.side as Position}
+          isConnectable={false}
+          className="cp-anchor"
+          style={
+            anchor.side === 'top' || anchor.side === 'bottom'
+              ? { left: `${(anchor.at ?? 0.5) * 100}%` }
+              : { top: `${(anchor.at ?? 0.5) * 100}%` }
+          }
+        />
+      ))}
+      {hover && <span className="cp-point-dot" style={pointStyle(hover)} />}
       {data.editing === 'label' ? (
         <LabelInput
           initial={data.label}

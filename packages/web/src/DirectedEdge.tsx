@@ -30,7 +30,7 @@ export type DirectedEdgeData = {
   onLabelCancel?: () => void;
 };
 
-type Anchor = { x: number; y: number; position: Position };
+export type Anchor = { x: number; y: number; position: Position };
 
 /** Which way is out of a face. Used to leave the box perpendicular to the side it starts on. */
 const OUTWARD: Record<Position, readonly [number, number]> = {
@@ -47,7 +47,7 @@ const OUTWARD: Record<Position, readonly [number, number]> = {
  * end that drifts off its face lands on a corner, which is the bug this replaced. The normal
  * already reverses for the opposite edge, so one positive constant pulls the two apart.
  */
-function curve(from: Anchor, to: Anchor, bow: number) {
+export function curve(from: Anchor, to: Anchor, bow: number) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const length = Math.hypot(dx, dy) || 1;

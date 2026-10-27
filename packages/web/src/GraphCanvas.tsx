@@ -9,19 +9,24 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
-  type Connection,
+  useStoreApi,
   type Edge,
   type EdgeChange,
+  type FinalConnectionState,
+  type HandleType,
   type Node,
   type NodeChange,
   type NodeProps,
+  type OnConnectStartParams,
 } from '@xyflow/react';
-import { EDGE_SIDES, type EdgeSide, type Graph, type GraphOp, type NodeColor, type Position } from '@crosspoint/core';
+import { type Graph, type GraphOp, type NodeColor, type Position } from '@crosspoint/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { CanvasNode } from './CanvasNode';
 import { strokeFor } from './colors';
+import { ConnectionPreview, ConnectionStartContext, type ConnectionStart } from './ConnectionPreview';
 import { DirectedEdge } from './DirectedEdge';
+import { dropTarget, handleId, nearestPoint, parseHandle, rectOf, type EndPoint } from './edgePoints';
 import { LabelInput } from './LabelInput';
 
 /**
@@ -36,12 +41,10 @@ import { LabelInput } from './LabelInput';
 const edgeTypes = { directed: DirectedEdge };
 const nodeTypes = { default: CanvasNode };
 
-/**
- * The side a handle belongs to. Handle ids are the side names, so this is a validation
- * step rather than a lookup — React Flow types them as `string | null`.
- */
-const sideOf = (handle: string | null | undefined): EdgeSide =>
-  (EDGE_SIDES as readonly string[]).includes(handle ?? '') ? (handle as EdgeSide) : 'top';
+const clientPoint = (event: MouseEvent | TouchEvent) =>
+  'changedTouches' in event
+    ? { x: event.changedTouches[0].clientX, y: event.changedTouches[0].clientY }
+    : { x: event.clientX, y: event.clientY };
 
 /** An arrowhead in the edge's own colour — React Flow bakes the colour into the marker. */
 const marker = (color: string) => ({
@@ -91,7 +94,11 @@ function GraphCanvasInner({
   onSelectionChange,
   variant = 'main',
 }: GraphCanvasProps) {
-  const { screenToFlowPosition, fitView } = useReactFlow();
+  const { screenToFlowPosition, fitView, getInternalNode } = useReactFlow();
+  const store = useStoreApi();
+  const connectionStart = useRef<ConnectionStart | null>(null);
+  /** Set while an existing end is being moved, so the connect handlers leave it alone. */
+  const reconnecting = useRef(false);
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   /** Nodes the user is mid-drag on; server state must not yank them out from under. */
@@ -113,6 +120,18 @@ function GraphCanvasInner({
 
   useEffect(() => {
     if (!graph) return;
+
+    const anchors = new Map<string, EndPoint[]>();
+    const anchor = (node: string, side: EndPoint['side'] | undefined, at: number | undefined) => {
+      if (side === undefined || at === undefined) return;
+      const list = anchors.get(node) ?? [];
+      if (!list.some((a) => a.side === side && a.at === at)) list.push({ side, at });
+      anchors.set(node, list);
+    };
+    for (const edge of graph.edges) {
+      anchor(edge.source, edge.sourceSide, edge.sourceAt);
+      anchor(edge.target, edge.targetSide, edge.targetAt);
+    }
 
     setNodes((prev) => {
       const previous = new Map(prev.map((n) => [n.id, n]));
@@ -137,6 +156,7 @@ function GraphCanvasInner({
           data: {
             ...node.data,
             label,
+            anchors: anchors.get(node.id),
             onLens: onLens ? () => onLens({ id: node.id, label, subcanvas }) : undefined,
           },
           // `cp-sized` releases the auto-sizing clamp. Inline width alone is not enough:
@@ -191,8 +211,8 @@ function GraphCanvasInner({
           // first handle it finds, and its reconnect anchors then sit ~120px away from the
           // line we actually draw — so grabbing the end of an edge hits nothing and the
           // edge reads as unchangeable.
-          sourceHandle: edge.sourceSide ?? null,
-          targetHandle: edge.targetSide ?? null,
+          sourceHandle: edge.sourceSide ? handleId(edge.sourceSide, edge.sourceAt) : null,
+          targetHandle: edge.targetSide ? handleId(edge.targetSide, edge.targetAt) : null,
           data: {
             offset: reciprocal ? 24 : 0,
             // So the edge can keep its own colour while selected rather than being
@@ -276,52 +296,108 @@ function GraphCanvasInner({
     [emit],
   );
 
-  const onConnect = useCallback(
-    (connection: Connection) => {
-      // No optimistic edge: the server assigns the id (`source->target`), and inventing a
-      // local one would briefly render a duplicate that then gets replaced. It keeps the
-      // server the only authority on what exists — the rule every mutation here follows.
-      //
-      // `add_edge_at` rather than `add_edge`: a human dragged between two points, so the
-      // ends are pinned there and stop being recomputed. One op, so it is one undo step.
-      if (connection.source && connection.target) {
-        emit({
-          op: 'add_edge_at',
-          source: connection.source,
-          target: connection.target,
-          sourceSide: sideOf(connection.sourceHandle),
-          targetSide: sideOf(connection.targetHandle),
-        });
+  /*
+   * Ends are worked out from the pointer, not from the handle React Flow connected: a drop
+   * anywhere on a box's border lands on that point, which no fixed handle could express.
+   * `onConnect` cannot do it — it never sees the pointer — so the work happens on `*End`.
+   */
+  const landing = useCallback(
+    (event: MouseEvent | TouchEvent, exclude: string, state: FinalConnectionState) => {
+      const pointer = screenToFlowPosition(clientPoint(event), { snapToGrid: false });
+      const { nodeLookup, transform } = store.getState();
+      const hit = dropTarget(nodeLookup.values(), pointer, transform[2], exclude);
+      if (hit) return { id: hit.id, side: hit.side, at: hit.at };
+      // Snapped onto a point from just outside the box: take the point React Flow chose.
+      if (state.isValid && state.toNode && state.toNode.id !== exclude) {
+        return { id: state.toNode.id, ...parseHandle(state.toHandle?.id) };
       }
+      return null;
     },
-    [emit],
+    [screenToFlowPosition, store],
   );
 
-  const onReconnect = useCallback(
-    (oldEdge: Edge, connection: Connection) => {
-      if (!connection.source || !connection.target) return;
+  const onConnectStart = useCallback(
+    (event: MouseEvent | TouchEvent, { nodeId }: OnConnectStartParams) => {
+      if (reconnecting.current || !nodeId) return;
+      const node = getInternalNode(nodeId);
+      if (!node) return;
+      const pointer = screenToFlowPosition(clientPoint(event), { snapToGrid: false });
+      connectionStart.current = {
+        nodeId,
+        ...nearestPoint(rectOf(node), pointer, store.getState().transform[2]),
+      };
+    },
+    [getInternalNode, screenToFlowPosition, store],
+  );
 
-      // Dropping an end on a different point of the same nodes is a re-point, not a
-      // reconnect — `reconnect_edge` would regenerate the id for a move that changed
-      // nothing about what connects to what.
-      if (connection.source === oldEdge.source && connection.target === oldEdge.target) {
-        emit({
-          op: 'attach_edge',
-          id: oldEdge.id,
-          source: sideOf(connection.sourceHandle),
-          target: sideOf(connection.targetHandle),
-        });
+  const onConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+      // React Flow calls this for a reconnect too, before `onReconnectEnd`.
+      if (reconnecting.current) return;
+      const start = connectionStart.current;
+      connectionStart.current = null;
+      if (!start) return;
+      const end = landing(event, start.nodeId, state);
+      if (!end) return;
+      // No optimistic edge: the server assigns the id. `add_edge_at` rather than `add_edge`:
+      // a human chose both points, so they are pinned. One op, so it is one undo step.
+      emit({
+        op: 'add_edge_at',
+        source: start.nodeId,
+        target: end.id,
+        sourceSide: start.side,
+        targetSide: end.side,
+        sourceAt: start.at,
+        targetAt: end.at,
+      });
+    },
+    [emit, landing],
+  );
+
+  const onReconnectStart = useCallback(
+    (_: unknown, edge: Edge, fixed: HandleType) => {
+      reconnecting.current = true;
+      connectionStart.current = {
+        nodeId: edge[fixed],
+        ...parseHandle(fixed === 'source' ? edge.sourceHandle : edge.targetHandle),
+      };
+    },
+    [],
+  );
+
+  // Required for React Flow to make edge ends grabbable; the work is in `onReconnectEnd`.
+  const onReconnect = useCallback(() => {}, []);
+
+  const onReconnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, edge: Edge, fixedType: HandleType, state: FinalConnectionState) => {
+      reconnecting.current = false;
+      const fixed = connectionStart.current;
+      connectionStart.current = null;
+      if (!fixed) return;
+      const end = landing(event, fixed.nodeId, state);
+      if (!end) return;
+      const moved = fixedType === 'source' ? 'target' : 'source';
+
+      // Same node is a re-point, not a reconnect — the id stays, since nothing about what
+      // connects to what changed.
+      if (end.id === edge[moved]) {
+        emit({ op: 'attach_edge', id: edge.id, [moved]: end.side, [`${moved}At`]: end.at });
         return;
       }
 
+      const [source, target] = moved === 'source' ? [end, fixed] : [fixed, end];
       emit({
-        op: 'reconnect_edge',
-        id: oldEdge.id,
-        source: connection.source,
-        target: connection.target,
+        op: 'reconnect_edge_at',
+        id: edge.id,
+        source: 'id' in source ? source.id : source.nodeId,
+        target: 'id' in target ? target.id : target.nodeId,
+        sourceSide: source.side,
+        targetSide: target.side,
+        sourceAt: source.at,
+        targetAt: target.at,
       });
     },
-    [emit],
+    [emit, landing],
   );
 
   /*
@@ -536,6 +612,7 @@ function GraphCanvasInner({
   );
 
   return (
+    <ConnectionStartContext.Provider value={connectionStart}>
     <div className="canvas-wrapper" ref={wrapper}>
     <ReactFlow
       nodes={displayNodes}
@@ -546,8 +623,12 @@ function GraphCanvasInner({
       onEdgesChange={onEdgesChange}
       onNodeDragStart={onNodeDragStart}
       onNodeDragStop={onNodeDragStop}
-      onConnect={onConnect}
+      onConnectStart={onConnectStart}
+      onConnectEnd={onConnectEnd}
+      onReconnectStart={onReconnectStart}
       onReconnect={onReconnect}
+      onReconnectEnd={onReconnectEnd}
+      connectionLineComponent={ConnectionPreview}
       // Every handle is a `source`; loose mode lets any of them receive too, so a drag can
       // start and land on whichever side happens to face the other node.
       connectionMode={ConnectionMode.Loose}
@@ -584,5 +665,6 @@ function GraphCanvasInner({
         </div>
       )}
     </div>
+    </ConnectionStartContext.Provider>
   );
 }
