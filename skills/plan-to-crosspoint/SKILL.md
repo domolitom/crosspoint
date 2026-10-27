@@ -40,6 +40,8 @@ revision per node.
 - **Keep labels short.** They render in a box that caps at 320px and wraps. "Validate input"
   reads; a sentence does not. Explanation goes in the node `body`.
 - **About 15 boxes or fewer.** Past that, move detail into subcanvases (see Nesting).
+- **Group related boxes.** Give nodes a `group` ("Frontend", "Backend", "Data") and they are
+  laid out together inside one labelled container.
 - **Pick the direction from the shape.** `direction: "LR"` for sequences, pipelines and
   request/response flows; the default `TB` for trees and control flow. A long chain in `TB`
   is one tall column.
