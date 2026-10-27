@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { applyOp, GraphError, normalize, structuralView } from './ops.js';
+import { kindOf } from './changes.js';
 import {
+  borderPoint,
   estimateNodeHeight,
   estimateNodeWidth,
   MAX_NODE_WIDTH,
@@ -949,6 +951,123 @@ test('pinned points round-trip through the file, and are canvas-only', () => {
   assert.equal(parse(serialize(g)).edges[0].sourceSide, 'right');
   assert.ok(isLayoutOp({ op: 'attach_edge', id: 'x', source: 'top' }), 'never on the agent surface');
   assert.ok(isLayoutOp({ op: 'add_edge_at', source: 'a', target: 'b', sourceSide: 'top', targetSide: 'top' }));
+});
+
+// Arbitrary points along a side (#19). Absent `at` is the predefined midpoint.
+test('add_edge_at keeps an offset along the side, and the file round-trips it', () => {
+  let g = build();
+  g = applyOp(g, { op: 'add_node', label: 'Cache' });
+  g = applyOp(g, {
+    op: 'add_edge_at',
+    source: 'database',
+    target: 'cache',
+    sourceSide: 'right',
+    targetSide: 'top',
+    targetAt: 0.25,
+  });
+
+  const edge = g.edges.find((e) => e.id === 'database->cache')!;
+  assert.equal(edge.targetAt, 0.25);
+  assert.equal(edge.sourceAt, undefined, 'no offset given means the midpoint, stored as absence');
+  assert.equal(parse(serialize(g)).edges.find((e) => e.id === edge.id)!.targetAt, 0.25);
+});
+
+test('an offset is refused without a side, out of range, or on a corner', () => {
+  const id = 'auth-service->database';
+  for (const at of [0, 0.05, 0.95, 1, Number.NaN, '0.3' as never]) {
+    assert.throws(() => applyOp(build(), { op: 'attach_edge', id, source: 'top', sourceAt: at }), GraphError);
+  }
+  assert.throws(() => applyOp(build(), { op: 'attach_edge', id, sourceAt: 0.3 }), GraphError);
+  assert.throws(() => applyOp(build(), { op: 'attach_edge', id, source: 'auto', sourceAt: 0.3 }), GraphError);
+});
+
+test('attach_edge sets an offset, a bare side clears it, and auto clears both', () => {
+  const id = 'auth-service->database';
+  let g = applyOp(build(), { op: 'attach_edge', id, source: 'top', sourceAt: 0.3, target: 'left', targetAt: 0.7 });
+  assert.equal(g.edges[0].sourceAt, 0.3);
+  assert.equal(g.edges[0].targetAt, 0.7);
+
+  assert.equal(applyOp(g, { op: 'attach_edge', id, source: 'top', sourceAt: 0.3 }), g, 'same point, same graph');
+
+  g = applyOp(g, { op: 'attach_edge', id, source: 'top' });
+  assert.equal(g.edges[0].sourceAt, undefined, 'back on the predefined point');
+  assert.equal(g.edges[0].targetAt, 0.7, 'the other end is untouched');
+
+  g = applyOp(g, { op: 'attach_edge', id, target: 'auto' });
+  assert.equal(g.edges[0].targetSide, undefined);
+  assert.equal(g.edges[0].targetAt, undefined);
+});
+
+test('reconnect_edge keeps the offset on the end that stayed and drops it on the one that moved', () => {
+  let g = build();
+  g = applyOp(g, { op: 'add_node', label: 'Cache' });
+  g = applyOp(g, {
+    op: 'attach_edge',
+    id: 'auth-service->database',
+    source: 'right',
+    sourceAt: 0.2,
+    target: 'left',
+    targetAt: 0.8,
+  });
+
+  const moved = applyOp(g, {
+    op: 'reconnect_edge',
+    id: 'auth-service->database',
+    source: 'auth-service',
+    target: 'cache',
+  }).edges[0];
+  assert.equal(moved.sourceAt, 0.2);
+  assert.equal(moved.targetAt, undefined);
+});
+
+test('reconnect_edge_at lands the moved end on the dropped point, in one op', () => {
+  let g = build();
+  g = applyOp(g, { op: 'add_node', label: 'Cache' });
+  g = applyOp(g, { op: 'update_edge', id: 'auth-service->database', label: 'reads', color: 'red' });
+
+  g = applyOp(g, {
+    op: 'reconnect_edge_at',
+    id: 'auth-service->database',
+    source: 'auth-service',
+    target: 'cache',
+    sourceSide: 'right',
+    targetSide: 'bottom',
+    targetAt: 0.4,
+  });
+
+  assert.equal(g.edges.length, 1);
+  const edge = g.edges[0];
+  assert.equal(edge.id, 'auth-service->cache', 'the id follows the endpoints, as reconnect_edge does');
+  assert.equal(edge.targetSide, 'bottom');
+  assert.equal(edge.targetAt, 0.4);
+  assert.equal(edge.label, 'reads', 'what the edge said survives the move');
+  assert.equal(edge.color, 'red');
+
+  const op = { op: 'reconnect_edge_at', id: 'x', source: 'a', target: 'b', sourceSide: 'top', targetSide: 'top' } as const;
+  assert.ok(isLayoutOp(op), 'canvas-only');
+  assert.equal(kindOf(op), 'structural', 'what connects to what changed, so it is the message');
+});
+
+test('the agent never sees an offset', () => {
+  const g = applyOp(build(), { op: 'attach_edge', id: 'auth-service->database', source: 'top', sourceAt: 0.3 });
+  assert.equal(JSON.stringify(structuralView(g)).includes('At'), false);
+});
+
+test('borderPoint picks the nearest side and how far along it', () => {
+  const box = { x: 0, y: 0, w: 200, h: 100 };
+  assert.deepEqual(borderPoint(box, { x: 50, y: 2 }), { side: 'top', at: 0.25 });
+  assert.deepEqual(borderPoint(box, { x: 150, y: 103 }), { side: 'bottom', at: 0.75 });
+  assert.deepEqual(borderPoint(box, { x: -4, y: 20 }), { side: 'left', at: 0.2 });
+  assert.deepEqual(borderPoint(box, { x: 198, y: 80 }), { side: 'right', at: 0.8 });
+});
+
+test('borderPoint pulls onto the midpoint and keeps off the corners', () => {
+  const box = { x: 0, y: 0, w: 200, h: 100 };
+  assert.deepEqual(borderPoint(box, { x: 109, y: 0 }), { side: 'top' }, 'inside the magnet');
+  assert.deepEqual(borderPoint(box, { x: 116, y: 0 }), { side: 'top', at: 0.58 }, 'just outside it');
+  assert.deepEqual(borderPoint(box, { x: 115, y: 0 }, 20), { side: 'top' }, 'a zoomed-out magnet is wider');
+  assert.deepEqual(borderPoint(box, { x: 3, y: 0 }), { side: 'top', at: 0.1 });
+  assert.deepEqual(borderPoint(box, { x: 199, y: 0 }), { side: 'top', at: 0.9 });
 });
 
 /*

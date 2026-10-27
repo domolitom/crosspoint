@@ -1,5 +1,5 @@
 import { describeCode } from './changes.js';
-import type { CodeRef, EdgeSide, GraphNode, Position, Size } from './types.js';
+import { AT_MAX, AT_MIN, type CodeRef, type EdgeSide, type GraphNode, type Position, type Size } from './types.js';
 
 /**
  * Seed placement for nodes that arrive without coordinates.
@@ -233,4 +233,34 @@ export function sideTowards(from: GraphNode, to: GraphNode): EdgeSide {
 
   if (Math.abs(dx) * a.h > Math.abs(dy) * a.w) return dx > 0 ? 'right' : 'left';
   return dy > 0 ? 'bottom' : 'top';
+}
+
+/** Screen pixels within which a point on a side is pulled onto its predefined midpoint. */
+export const MIDPOINT_MAGNET = 12;
+
+/**
+ * The point on a box's border nearest `point`: a side, and how far along it.
+ *
+ * No `at` means the side's midpoint. `magnet` is in the same units as the box, so a caller
+ * working in flow coordinates divides the screen distance by the zoom.
+ */
+export function borderPoint(
+  box: { x: number; y: number; w: number; h: number },
+  point: Position,
+  magnet = MIDPOINT_MAGNET,
+): { side: EdgeSide; at?: number } {
+  const distances: [EdgeSide, number][] = [
+    ['top', Math.abs(point.y - box.y)],
+    ['bottom', Math.abs(point.y - (box.y + box.h))],
+    ['left', Math.abs(point.x - box.x)],
+    ['right', Math.abs(point.x - (box.x + box.w))],
+  ];
+  const [side] = distances.reduce((a, b) => (b[1] < a[1] ? b : a));
+  const horizontal = side === 'top' || side === 'bottom';
+  const length = horizontal ? box.w : box.h;
+  const along = horizontal ? point.x - box.x : point.y - box.y;
+
+  if (length <= 0 || Math.abs(along - length / 2) <= magnet) return { side };
+  const at = Math.round(Math.min(AT_MAX, Math.max(AT_MIN, along / length)) * 100) / 100;
+  return at === 0.5 ? { side } : { side, at };
 }

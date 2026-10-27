@@ -80,6 +80,10 @@ export type EdgeSide = (typeof EDGE_SIDES)[number];
 
 export type SideInput = EdgeSide | 'auto';
 
+/** How far along its side an end may sit. Closer to a corner reads as the #15 bug. */
+export const AT_MIN = 0.1;
+export const AT_MAX = 0.9;
+
 /**
  * Where in the codebase a node points.
  *
@@ -149,6 +153,9 @@ export interface GraphEdge {
   /** Pinned connection points. Absent on either end means that end is still computed. */
   sourceSide?: EdgeSide;
   targetSide?: EdgeSide;
+  /** Fraction along the pinned side. Absent means its midpoint, the predefined point. */
+  sourceAt?: number;
+  targetAt?: number;
 }
 
 export interface Graph {
@@ -308,10 +315,30 @@ export type LayoutOp =
       target: string;
       sourceSide: EdgeSide;
       targetSide: EdgeSide;
+      sourceAt?: number;
+      targetAt?: number;
       label?: string;
     }
   /** Move an end to a different point on the same node, or release it back to automatic. */
-  | { op: 'attach_edge'; id: string; source?: SideInput; target?: SideInput };
+  | {
+      op: 'attach_edge';
+      id: string;
+      source?: SideInput;
+      target?: SideInput;
+      sourceAt?: number;
+      targetAt?: number;
+    }
+  /** The canvas twin of `reconnect_edge`: the moved end lands on the point it was dropped on. */
+  | {
+      op: 'reconnect_edge_at';
+      id: string;
+      source: string;
+      target: string;
+      sourceSide: EdgeSide;
+      targetSide: EdgeSide;
+      sourceAt?: number;
+      targetAt?: number;
+    };
 
 export type GraphOp = StructuralOp | LayoutOp;
 
@@ -321,6 +348,7 @@ const LAYOUT_OPS = new Set([
   'resize_node',
   'add_edge_at',
   'attach_edge',
+  'reconnect_edge_at',
 ]);
 
 export const isLayoutOp = (op: GraphOp): op is LayoutOp => LAYOUT_OPS.has(op.op);

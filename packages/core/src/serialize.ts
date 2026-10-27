@@ -27,7 +27,9 @@ export function serialize(graph: Graph): string {
       ...(e.color === undefined ? {} : { color: e.color }),
       ...(e.arrow === undefined ? {} : { arrow: e.arrow }),
       ...(e.sourceSide === undefined ? {} : { sourceSide: e.sourceSide }),
+      ...(e.sourceAt === undefined ? {} : { sourceAt: e.sourceAt }),
       ...(e.targetSide === undefined ? {} : { targetSide: e.targetSide }),
+      ...(e.targetAt === undefined ? {} : { targetAt: e.targetAt }),
     })),
   };
   return JSON.stringify(ordered, null, 2) + '\n';

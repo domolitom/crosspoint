@@ -209,6 +209,7 @@ export function describeOp(op: LoggedOp): string {
     case 'add_edge_at':
       return `+ edge ${op.source} → ${op.target}` + (op.label ? ` ${quote(op.label)}` : '');
     case 'reconnect_edge':
+    case 'reconnect_edge_at':
       return `~ edge ${op.id} now ${op.source} → ${op.target}`;
     case 'update_node': {
       // One op can carry several changes; naming each is the difference between a reader

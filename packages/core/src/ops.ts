@@ -4,6 +4,8 @@ import { generateGraph } from './generate.js';
 import { slugify, uniqueId } from './ids.js';
 import { nodeSize, placeNode, sideTowards, snapPosition, snapSize } from './placement.js';
 import {
+  AT_MAX,
+  AT_MIN,
   EDGE_ARROWS,
   EDGE_SIDES,
   NODE_COLORS,
@@ -111,6 +113,43 @@ function requireSide(side: unknown): void {
       `Unknown side "${String(side)}" — expected one of ${EDGE_SIDES.join(', ')}, or "auto"`,
     );
   }
+}
+
+/** An offset only means something along a named side, and never on a corner. */
+function requireAt(at: unknown, side: unknown): void {
+  if (at === undefined) return;
+  if (side === undefined || side === 'auto') {
+    throw new GraphError('An offset along a side needs that side to be named');
+  }
+  if (typeof at !== 'number' || !Number.isFinite(at) || at < AT_MIN || at > AT_MAX) {
+    throw new GraphError(`Offset ${String(at)} is out of range — expected ${AT_MIN} to ${AT_MAX}`);
+  }
+}
+
+/** Pin one end to a side, and to a point along it or its midpoint. */
+function pinEnd(edge: GraphEdge, end: 'source' | 'target', side: EdgeSide, at?: number): void {
+  edge[`${end}Side`] = side;
+  if (at === undefined) delete edge[`${end}At`];
+  else edge[`${end}At`] = at;
+}
+
+/** An edge pointed at new nodes, keeping everything it carried and nothing it was pinned to. */
+function rewire(graph: Graph, existing: GraphEdge, source: string, target: string): GraphEdge {
+  requireNode(graph, source, 'source');
+  requireNode(graph, target, 'target');
+  // Ids are derived from their endpoints, so an edge that now runs somewhere else
+  // needs a new one — otherwise `auth->database` could describe an edge into the
+  // cache, and the id stops being something an agent can reason about. Nothing
+  // references edge ids, so regenerating is safe.
+  const taken = new Set(graph.edges.filter((e) => e.id !== existing.id).map((e) => e.id));
+  const id = uniqueId(`${source}->${target}`, taken);
+  const rewired: GraphEdge = { id, source, target };
+  // Everything the edge carried survives being pointed somewhere else. Moving an arrow
+  // is not a reason to lose the label or the colour that said what it meant.
+  if (existing.label !== undefined) rewired.label = existing.label;
+  if (existing.color !== undefined) rewired.color = existing.color;
+  if (existing.arrow !== undefined) rewired.arrow = existing.arrow;
+  return rewired;
 }
 
 /**
@@ -242,34 +281,22 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
     case 'reconnect_edge': {
       const existing = graph.edges.find((e) => e.id === op.id);
       if (!existing) throw new GraphError(`No edge with id "${op.id}"`);
-      requireNode(graph, op.source, 'source');
-      requireNode(graph, op.target, 'target');
-
-      // Ids are derived from their endpoints, so an edge that now runs somewhere else
-      // needs a new one — otherwise `auth->database` could describe an edge into the
-      // cache, and the id stops being something an agent can reason about. Nothing
-      // references edge ids, so regenerating is safe.
-      const taken = new Set(graph.edges.filter((e) => e.id !== op.id).map((e) => e.id));
-      const id = uniqueId(`${op.source}->${op.target}`, taken);
-      const reconnected: GraphEdge = { id, source: op.source, target: op.target };
-      // Everything the edge carried survives being pointed somewhere else. Moving an arrow
-      // is not a reason to lose the label or the colour that said what it meant.
-      if (existing.label !== undefined) reconnected.label = existing.label;
-      if (existing.color !== undefined) reconnected.color = existing.color;
-      if (existing.arrow !== undefined) reconnected.arrow = existing.arrow;
+      const reconnected = rewire(graph, existing, op.source, op.target);
       // A pinned point only means something for the node it was pinned to. The end that
       // moved is now on a different box, so it goes back to automatic; the end that stayed
-      // put keeps the point the human chose for it.
+      // put keeps the point the human chose for it, offset included.
       const from = requireNode(graph, op.source, 'source');
       const to = requireNode(graph, op.target, 'target');
-      reconnected.sourceSide =
-        existing.source === op.source && existing.sourceSide !== undefined
-          ? existing.sourceSide
-          : sideTowards(from, to);
-      reconnected.targetSide =
-        existing.target === op.target && existing.targetSide !== undefined
-          ? existing.targetSide
-          : sideTowards(to, from);
+      if (existing.source === op.source && existing.sourceSide !== undefined) {
+        pinEnd(reconnected, 'source', existing.sourceSide, existing.sourceAt);
+      } else {
+        reconnected.sourceSide = sideTowards(from, to);
+      }
+      if (existing.target === op.target && existing.targetSide !== undefined) {
+        pinEnd(reconnected, 'target', existing.targetSide, existing.targetAt);
+      } else {
+        reconnected.targetSide = sideTowards(to, from);
+      }
 
       return {
         ...next,
@@ -296,17 +323,31 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       requireNode(graph, op.target, 'target');
       requireSide(op.sourceSide);
       requireSide(op.targetSide);
+      requireAt(op.sourceAt, op.sourceSide);
+      requireAt(op.targetAt, op.targetSide);
       const taken = new Set(graph.edges.map((e) => e.id));
       const id = uniqueId(`${op.source}->${op.target}`, taken);
-      const edge: GraphEdge = {
-        id,
-        source: op.source,
-        target: op.target,
-        sourceSide: op.sourceSide,
-        targetSide: op.targetSide,
-      };
+      const edge: GraphEdge = { id, source: op.source, target: op.target };
+      pinEnd(edge, 'source', op.sourceSide, op.sourceAt);
+      pinEnd(edge, 'target', op.targetSide, op.targetAt);
       if (op.label) edge.label = op.label;
       return { ...next, edges: [...graph.edges, edge] };
+    }
+
+    case 'reconnect_edge_at': {
+      const existing = graph.edges.find((e) => e.id === op.id);
+      if (!existing) throw new GraphError(`No edge with id "${op.id}"`);
+      requireSide(op.sourceSide);
+      requireSide(op.targetSide);
+      requireAt(op.sourceAt, op.sourceSide);
+      requireAt(op.targetAt, op.targetSide);
+      const reconnected = rewire(graph, existing, op.source, op.target);
+      pinEnd(reconnected, 'source', op.sourceSide, op.sourceAt);
+      pinEnd(reconnected, 'target', op.targetSide, op.targetAt);
+      return {
+        ...next,
+        edges: graph.edges.map((e) => (e.id === op.id ? reconnected : e)),
+      };
     }
 
     case 'attach_edge': {
@@ -314,19 +355,28 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       if (!existing) throw new GraphError(`No edge with id "${op.id}"`);
       requireSide(op.source);
       requireSide(op.target);
+      requireAt(op.sourceAt, op.source);
+      requireAt(op.targetAt, op.target);
 
       const attached: GraphEdge = { ...existing };
       // `auto` releases the pin rather than storing a sentinel, matching `none` for colour.
-      if (op.source === 'auto') delete attached.sourceSide;
-      else if (op.source !== undefined) attached.sourceSide = op.source as EdgeSide;
-      if (op.target === 'auto') delete attached.targetSide;
-      else if (op.target !== undefined) attached.targetSide = op.target as EdgeSide;
+      // A side alone means its midpoint, so it clears any offset the end had.
+      if (op.source === 'auto') {
+        delete attached.sourceSide;
+        delete attached.sourceAt;
+      } else if (op.source !== undefined) pinEnd(attached, 'source', op.source, op.sourceAt);
+      if (op.target === 'auto') {
+        delete attached.targetSide;
+        delete attached.targetAt;
+      } else if (op.target !== undefined) pinEnd(attached, 'target', op.target, op.targetAt);
 
       // Nothing changed means nothing to record — the same contract `move_node` keeps when
       // a drag lands where the node already was.
       if (
         attached.sourceSide === existing.sourceSide &&
-        attached.targetSide === existing.targetSide
+        attached.targetSide === existing.targetSide &&
+        attached.sourceAt === existing.sourceAt &&
+        attached.targetAt === existing.targetAt
       ) {
         return graph;
       }
