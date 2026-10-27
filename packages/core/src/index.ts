@@ -1,6 +1,7 @@
 export * from './types.js';
 export * from './arrange.js';
 export * from './changes.js';
+export * from './clipboard.js';
 // `GraphError` is re-exported by ops.js; a second star export here would make it
 // ambiguous rather than merely duplicated.
 export * from './generate.js';

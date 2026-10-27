@@ -200,6 +200,11 @@ export function describeOp(op: LoggedOp): string {
       );
     case 'add_node_at':
       return `+ node ${quote(op.label)} (dropped on canvas)`;
+    case 'paste':
+      return (
+        `+ pasted ${count(op.nodes.length, 'node')} (${op.nodes.map((n) => quote(n.data.label)).join(', ')})` +
+        (op.edges.length ? `, ${count(op.edges.length, 'edge')}` : '')
+      );
     case 'add_edge':
       return (
         `+ edge ${op.source} → ${op.target}` +

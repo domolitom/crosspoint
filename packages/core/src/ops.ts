@@ -415,6 +415,9 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       return { ...next, nodes: [...graph.nodes, node] };
     }
 
+    case 'paste':
+      return { ...pasteInto(graph, op), rev: next.rev };
+
     case 'move_node': {
       const node = requireNode(graph, op.id, 'id');
       const position = snapPosition(op.position);
@@ -442,6 +445,65 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
       };
     }
   }
+}
+
+/** Add copies under fresh ids, rewiring edges from copied refs to the new ids. */
+function pasteInto(graph: Graph, op: Extract<GraphOp, { op: 'paste' }>): Graph {
+  if (!Array.isArray(op.nodes) || op.nodes.length === 0) throw new GraphError('Nothing to paste');
+  const taken = new Set(graph.nodes.map((n) => n.id));
+  const ids = new Map<string, string>();
+  const added: PlacedNode[] = [];
+
+  for (const pasted of op.nodes) {
+    if (ids.has(pasted.ref)) throw new GraphError(`Pasted ref "${pasted.ref}" appears twice`);
+    const { label, body, color, code, subcanvas, ...rest } = pasted.data ?? ({} as NodeData);
+    if (typeof label !== 'string' || label.trim() === '') {
+      throw new GraphError('A pasted node needs a label');
+    }
+    if (body !== undefined && typeof body !== 'string') throw new GraphError('body must be a string');
+    if (subcanvas !== undefined && typeof subcanvas !== 'string') {
+      throw new GraphError('subcanvas must be a diagram name');
+    }
+    requireColor(color);
+    requireCode(code);
+    const id = uniqueId(slugify(label), taken);
+    taken.add(id);
+    ids.set(pasted.ref, id);
+    const node: PlacedNode = {
+      id,
+      position: snapPosition(pasted.position),
+      data: mergeNodeData({ label }, { body, color, code, subcanvas, data: rest }),
+    };
+    if (pasted.size) node.size = snapSize(pasted.size);
+    added.push(node);
+  }
+
+  const placed = new Map(added.map((n) => [n.id, n]));
+  const edgeIds = new Set(graph.edges.map((e) => e.id));
+  const wired = (op.edges ?? []).map((pasted) => {
+    const source = ids.get(pasted.source);
+    const target = ids.get(pasted.target);
+    if (!source || !target) {
+      throw new GraphError(`Pasted edge ${pasted.source} → ${pasted.target} leaves the paste`);
+    }
+    requireColor(pasted.color);
+    requireArrow(pasted.arrow);
+    for (const side of [pasted.sourceSide, pasted.targetSide]) {
+      if (side === ('auto' as string)) throw new GraphError('A pasted side cannot be "auto"');
+      requireSide(side);
+    }
+    const id = uniqueId(`${source}->${target}`, edgeIds);
+    edgeIds.add(id);
+    const edge: GraphEdge = { id, source, target };
+    if (pasted.label) edge.label = pasted.label;
+    if (pasted.color && pasted.color !== ('none' as string)) edge.color = pasted.color;
+    if (pasted.arrow && pasted.arrow !== 'forward') edge.arrow = pasted.arrow;
+    if (pasted.sourceSide) edge.sourceSide = pasted.sourceSide;
+    if (pasted.targetSide) edge.targetSide = pasted.targetSide;
+    return attachDefaults(edge, placed);
+  });
+
+  return { ...graph, nodes: [...graph.nodes, ...added], edges: [...graph.edges, ...wired] };
 }
 
 /** Give an edge the points it is missing, from where its two nodes currently sit. */
