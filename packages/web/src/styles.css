@@ -474,12 +474,13 @@ body,
  * On a node without one it appears on hover, which is how you create one — otherwise
  * creating would need a second affordance somewhere else entirely.
  */
+/* Inside the corner, clear of the border bands, so an arrow can start under it. */
 .react-flow__node .cp-lens {
   position: absolute;
-  top: -9px;
-  right: -9px;
-  width: 20px;
-  height: 20px;
+  top: 5px;
+  right: 5px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   display: flex;
   align-items: center;
@@ -750,10 +751,10 @@ body,
    never collide. */
 .react-flow__node .cp-body-add {
   position: absolute;
-  top: -9px;
-  left: -9px;
-  width: 20px;
-  height: 20px;
+  top: 5px;
+  left: 5px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   display: flex;
   align-items: center;
