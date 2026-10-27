@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 
 import {
+  checkLayout,
   structuralView,
   summarise,
   withActor,
@@ -64,6 +65,15 @@ const server = createServer(async (req, res) => {
       // Agent view: structure and labels only. Coordinates are data an agent must
       // preserve, not data it consumes, so they are omitted unless asked for.
       return json(res, 200, structuralView(store.graphOf(named)));
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/check') {
+      // Read-only: names what a reader would trip over, so an agent can fix it by intent.
+      const problems = checkLayout(store.graphOf(named));
+      const summary = problems.length
+        ? `${problems.length} problem${problems.length === 1 ? '' : 's'}`
+        : 'no problems';
+      return json(res, 200, { summary, problems });
     }
 
     if (req.method === 'GET' && url.pathname === '/api/changes') {

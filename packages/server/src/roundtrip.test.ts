@@ -211,6 +211,22 @@ test('the agent view omits coordinates entirely', async () => {
   assert.equal(body.edges[0].source, 'auth-service');
 });
 
+test('the layout check names problems in the diagram it is asked about', async () => {
+  const post = (path: string, body: unknown) =>
+    api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await post('/api/diagrams', { name: 'check-me' })).status, 200);
+  for (const op of [
+    { op: 'add_node_at', label: 'Left', position: { x: 0, y: 0 } },
+    { op: 'add_node_at', label: 'Right', position: { x: 30, y: 15 } },
+  ]) {
+    assert.equal((await post('/api/op', { diagram: 'check-me', op })).status, 200);
+  }
+  const { status, body } = await api('/api/check?diagram=check-me');
+  assert.equal(status, 200);
+  assert.deepEqual(body.problems.map((p: any) => [p.kind, p.nodes]), [['overlap', ['left', 'right']]]);
+  assert.match(body.summary, /1 problem/);
+});
+
 test('the canvas view includes coordinates', async () => {
   const { body } = await api('/api/graph');
   assert.ok(body.nodes[0].position, 'canvas needs geometry to render');
