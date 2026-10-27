@@ -1030,3 +1030,42 @@ test('a code reference renders on the node and survives a later push', async () 
   await stack.op({ op: 'update_node', id, code: 'none' }, 'coderef');
   await until('the code line to go', async () => (await line.count()) === 0);
 });
+
+/* Groups (#23): a derived container, drawn behind its members and click-through. */
+test('a group is drawn as a labelled container around its members', async () => {
+  const seedIn = await freshDiagram('groups');
+  const a = await seedIn('Orders', 0, 0);
+  const b = await seedIn('Billing', 240, 0);
+  const outside = await seedIn('Outside', 0, 300);
+  for (const id of [a, b]) {
+    const { status } = await stack.op({ op: 'update_node', id, group: 'Backend' }, 'groups');
+    assert.equal(status, 200);
+  }
+  await fit();
+  const container = stack.page.locator('.cp-group[data-group="Backend"]');
+  await until('the container to render', async () => (await container.count()) === 1);
+  assert.equal(await container.textContent(), 'Backend');
+
+  const box = async (sel: string) => (await stack.page.locator(sel).boundingBox())!;
+  const holds = (outer: { x: number; y: number; width: number; height: number }, inner: typeof outer) =>
+    inner.x > outer.x && inner.y > outer.y &&
+    inner.x + inner.width < outer.x + outer.width && inner.y + inner.height < outer.y + outer.height;
+  const frame = await container.boundingBox();
+  for (const id of [a, b]) assert.ok(holds(frame!, await box(`.react-flow__node[data-id="${id}"]`)), id);
+  assert.ok(!holds(frame!, await box(`.react-flow__node[data-id="${outside}"]`)), 'outside');
+
+  // Between the members is inside the container, and a double-click there must reach the pane.
+  const left = await box(`.react-flow__node[data-id="${a}"]`);
+  const right = await box(`.react-flow__node[data-id="${b}"]`);
+  const hit = await stack.page.evaluate(
+    ([x, y]) => document.elementFromPoint(x, y)?.className.toString() ?? 'nothing',
+    [(left.x + left.width + right.x) / 2, left.y + left.height / 2],
+  );
+  assert.match(hit, /react-flow__pane/);
+
+  await dragTo(b, { x: 600, y: 150 });
+  await until('the container to follow the dragged member', async () => {
+    const now = await container.boundingBox();
+    return now && holds(now, await box(`.react-flow__node[data-id="${b}"]`)) ? now : null;
+  });
+});
