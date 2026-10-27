@@ -186,6 +186,11 @@ export const DISTRIBUTE_AXES = ['horizontal', 'vertical'] as const;
 
 export type DistributeAxis = (typeof DISTRIBUTE_AXES)[number];
 
+/** Which way a generated graph flows: top to bottom, left to right, and their reverses. */
+export const DIRECTIONS = ['TB', 'LR', 'BT', 'RL'] as const;
+
+export type Direction = (typeof DIRECTIONS)[number];
+
 /** A node in a `generate_graph` payload. Carries no position — that is the point. */
 export interface GeneratedNode {
   label: string;
@@ -306,6 +311,8 @@ export type StructuralOp =
       edges: GeneratedEdge[];
       /** Required to discard an existing diagram; without it a non-empty one is refused. */
       replace?: boolean;
+      /** Defaults to `TB`. */
+      direction?: Direction;
     };
 
 /**

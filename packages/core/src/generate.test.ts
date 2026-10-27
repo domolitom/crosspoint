@@ -283,3 +283,90 @@ test('a control-flow-shaped 40-node graph lays out cleanly and quickly', () => {
   assert.equal(findOverlap(g), null, 'a real-sized graph must not overlap');
   assert.ok(ms < 2000, `layout took ${ms.toFixed(0)}ms`);
 });
+
+test('direction LR runs a chain left to right, edges leaving right and entering left', () => {
+  const g = applyOp(emptyGraph(), {
+    op: 'generate_graph',
+    nodes: labels('Request', 'Gateway', 'Service', 'Database'),
+    edges: [
+      { source: 'request', target: 'gateway' },
+      { source: 'gateway', target: 'service' },
+      { source: 'service', target: 'database' },
+    ],
+    direction: 'LR',
+  });
+  const at = (id: string) => g.nodes.find((n) => n.id === id)!.position!;
+  const chain = ['request', 'gateway', 'service', 'database'];
+  for (let i = 1; i < chain.length; i++) {
+    assert.ok(at(chain[i]).x > at(chain[i - 1]).x, `${chain[i]} right of ${chain[i - 1]}`);
+  }
+  assert.equal(new Set(chain.map((id) => at(id).y)).size, 1, 'one row');
+  for (const e of g.edges) assert.deepEqual([e.sourceSide, e.targetSide], ['right', 'left'], e.id);
+});
+
+test('a branching LR graph still wires every forward edge right to left', () => {
+  const g = applyOp(emptyGraph(), {
+    op: 'generate_graph',
+    nodes: labels('Start', 'A', 'B', 'C', 'Join'),
+    edges: ['a', 'b', 'c'].flatMap((x) => [
+      { source: 'start', target: x },
+      { source: x, target: 'join' },
+    ]),
+    direction: 'LR',
+  });
+  for (const e of g.edges) assert.deepEqual([e.sourceSide, e.targetSide], ['right', 'left'], e.id);
+});
+
+test('the other directions flow the way they say', () => {
+  const nodes = labels('First', 'Second');
+  const edges = [{ source: 'first', target: 'second' }];
+  const run = (direction: 'BT' | 'RL') =>
+    applyOp(emptyGraph(), { op: 'generate_graph', nodes, edges, direction });
+  const bt = run('BT');
+  const btAt = (id: string) => bt.nodes.find((n) => n.id === id)!.position!;
+  assert.ok(btAt('second').y < btAt('first').y, 'BT: target above');
+  assert.deepEqual([bt.edges[0].sourceSide, bt.edges[0].targetSide], ['top', 'bottom']);
+  const rl = run('RL');
+  const rlAt = (id: string) => rl.nodes.find((n) => n.id === id)!.position!;
+  assert.ok(rlAt('second').x < rlAt('first').x, 'RL: target to the left');
+  assert.deepEqual([rl.edges[0].sourceSide, rl.edges[0].targetSide], ['left', 'right']);
+});
+
+test('an unknown direction is refused', () => {
+  assert.throws(
+    () =>
+      applyOp(emptyGraph(), {
+        op: 'generate_graph',
+        nodes: labels('One'),
+        edges: [],
+        direction: 'diagonal' as 'LR',
+      }),
+    /Unknown direction "diagonal"/,
+  );
+});
+
+test('omitting direction gives exactly the TB layout', () => {
+  const nodes = labels('Start', 'Branch A', 'Branch B', 'Join');
+  const edges = [
+    { source: 'start', target: 'branch-a' },
+    { source: 'start', target: 'branch-b' },
+    { source: 'branch-a', target: 'join' },
+    { source: 'branch-b', target: 'join' },
+  ];
+  const plain = applyOp(emptyGraph(), { op: 'generate_graph', nodes, edges });
+  const tb = applyOp(emptyGraph(), { op: 'generate_graph', nodes, edges, direction: 'TB' });
+  assert.deepEqual(plain, tb);
+});
+
+test('a wide TB fan-out enters every child from the top, not the side', () => {
+  const kids = 'abcdefgh'.split('');
+  const g = generate(
+    emptyGraph(),
+    [{ label: 'Root' }, ...kids.map((label) => ({ label })), { label: 'Join' }],
+    kids.flatMap((k) => [
+      { source: 'root', target: k },
+      { source: k, target: 'join' },
+    ]),
+  );
+  for (const e of g.edges) assert.deepEqual([e.sourceSide, e.targetSide], ['bottom', 'top'], e.id);
+});

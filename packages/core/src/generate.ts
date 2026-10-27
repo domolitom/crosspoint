@@ -4,6 +4,8 @@ import { GraphError } from './errors.js';
 import { slugify, uniqueId } from './ids.js';
 import { estimateNodeHeight, estimateNodeWidth, snapPosition } from './placement.js';
 import type {
+  Direction,
+  EdgeSide,
   GeneratedEdge,
   GeneratedNode,
   GraphEdge,
@@ -24,8 +26,13 @@ import type {
  * the parked split of `core` into `structure/` and `layout/` stays a file move.
  */
 
-/** Vertical flow: sources above their targets, which is how a control flow graph reads. */
-const RANK_DIRECTION = 'TB';
+/** The side an edge leaves and the side it enters, for each flow direction. */
+const FLOW: Record<Direction, [EdgeSide, EdgeSide]> = {
+  TB: ['bottom', 'top'],
+  BT: ['top', 'bottom'],
+  LR: ['right', 'left'],
+  RL: ['left', 'right'],
+};
 /** Gap between siblings in a rank, and between ranks. Roomier than the seed lattice. */
 const NODE_SEPARATION = 40;
 const RANK_SEPARATION = 70;
@@ -44,6 +51,7 @@ export interface GeneratedLayout {
 export function generateGraph(
   nodes: GeneratedNode[],
   edges: GeneratedEdge[],
+  direction: Direction = 'TB',
 ): GeneratedLayout {
   const ids = resolveIds(nodes);
   const known = new Set(ids);
@@ -57,7 +65,8 @@ export function generateGraph(
     }
   }
 
-  const positions = runDagre(nodes, ids, edges);
+  const { positions, sizes } = runDagre(nodes, ids, edges, direction);
+  const boxes = new Map(ids.map((id, i) => [id, { ...positions[i], w: sizes[i].width, h: sizes[i].height }]));
 
   return {
     nodes: nodes.map((node, index) => ({
@@ -65,7 +74,7 @@ export function generateGraph(
       position: positions[index],
       data: dataFor(node),
     })),
-    edges: identifyEdges(edges),
+    edges: identifyEdges(edges).map((edge) => withFlowSides(edge, boxes, direction)),
   };
 }
 
@@ -113,14 +122,32 @@ function identifyEdges(edges: GeneratedEdge[]): GraphEdge[] {
   });
 }
 
+type Box = { x: number; y: number; w: number; h: number };
+
+/** A forward edge leaves and enters along the flow, even on a branch the face test would turn. */
+function withFlowSides(edge: GraphEdge, boxes: Map<string, Box>, direction: Direction): GraphEdge {
+  const a = boxes.get(edge.source)!;
+  const b = boxes.get(edge.target)!;
+  const forward = {
+    TB: b.y >= a.y + a.h,
+    BT: b.y + b.h <= a.y,
+    LR: b.x >= a.x + a.w,
+    RL: b.x + b.w <= a.x,
+  }[direction];
+  if (!forward) return edge;
+  const [sourceSide, targetSide] = FLOW[direction];
+  return { ...edge, sourceSide, targetSide };
+}
+
 function runDagre(
   nodes: GeneratedNode[],
   ids: string[],
   edges: GeneratedEdge[],
-): { x: number; y: number }[] {
+  direction: Direction,
+): { positions: { x: number; y: number }[]; sizes: { width: number; height: number }[] } {
   const g = new dagre.graphlib.Graph();
   g.setGraph({
-    rankdir: RANK_DIRECTION,
+    rankdir: direction,
     nodesep: NODE_SEPARATION,
     ranksep: RANK_SEPARATION,
     marginx: 0,
@@ -139,7 +166,7 @@ function runDagre(
 
   dagre.layout(g);
 
-  return ids.map((id, index) => {
+  const positions = ids.map((id, index) => {
     const laid = g.node(id) as { x: number; y: number } | undefined;
     // Dagre reports the node *centre*; this model stores the top-left corner. Skipping
     // this conversion shifts everything by half a box and makes overlap checks lie.
@@ -150,4 +177,5 @@ function runDagre(
       y: centreY - sizes[index].height / 2,
     });
   });
+  return { positions, sizes };
 }

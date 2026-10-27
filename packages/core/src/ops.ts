@@ -6,6 +6,7 @@ import { nodeSize, placeNode, sideTowards, snapPosition, snapSize } from './plac
 import {
   AT_MAX,
   AT_MIN,
+  DIRECTIONS,
   EDGE_ARROWS,
   EDGE_SIDES,
   NODE_COLORS,
@@ -422,6 +423,11 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
         requireCode(node.code);
       }
       for (const edge of op.edges) requireColor(edge.color);
+      if (op.direction !== undefined && !(DIRECTIONS as readonly string[]).includes(op.direction)) {
+        throw new GraphError(
+          `Unknown direction "${String(op.direction)}" — expected one of ${DIRECTIONS.join(', ')}`,
+        );
+      }
 
       // Checked before any work, and `applyOp` is pure, so a refusal cannot leave the
       // diagram half-replaced. The count is in the message because the whole reason this
@@ -434,7 +440,7 @@ export function applyOp(graph: Graph, op: GraphOp): Graph {
         );
       }
 
-      const { nodes, edges } = generateGraph(op.nodes, op.edges);
+      const { nodes, edges } = generateGraph(op.nodes, op.edges, op.direction);
       // Seeded from dagre's own layout, so a generated diagram opens with its arrows already
       // on a sensible point and never recomputes them afterwards.
       const placed = new Map(nodes.map((n) => [n.id, n]));
