@@ -753,6 +753,33 @@ test('an edge can start and end anywhere on a border', async () => {
   });
 });
 
+// React Flow hands the line its pointer in pane pixels, not flow coordinates. Treating them
+// as flow put the preview far off the cursor once the view was zoomed, while the drop still
+// landed right — so only a mid-drag look at the line catches it.
+test('while drawing, the preview line ends on the point the edge will land on', async () => {
+  const seedIn = await freshDiagram('preview');
+  const a = await seedIn('Preview A', 0, 0);
+  const b = await seedIn('Preview B', 240, 0);
+  await settleViewport(stack.page);
+
+  const from = await onBorder(a, 'bottom', 0.7);
+  const to = await onBorder(b, 'top', 0.3);
+  await stack.page.mouse.move(from.x, from.y);
+  await stack.page.mouse.down();
+  await stack.page.mouse.move(to.x, to.y, { steps: 10 });
+
+  try {
+    const d = await stack.page.getAttribute('.react-flow__connection-path', 'd');
+    const m = /([-\d.]+),([-\d.]+)\s*$/.exec(d ?? '');
+    assert.ok(m, `could not read the preview line: ${d}`);
+    const want = along(await flowRect(b), 'top', 0.3);
+    const gap = Math.hypot(Number(m[1]) - want.x, Number(m[2]) - want.y);
+    assert.ok(gap < 4, `preview ends ${gap.toFixed(0)}px from the landing point`);
+  } finally {
+    await stack.page.mouse.up();
+  }
+});
+
 test('an end off the midpoint keeps its place along the side when the box is resized', async () => {
   const { b, id } = await offsetEdge('offset-resize');
 
