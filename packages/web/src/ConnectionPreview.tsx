@@ -16,16 +16,18 @@ export const ConnectionStartContext = createContext<MutableRefObject<ConnectionS
 export function ConnectionPreview({ fromNode, fromX, fromY, fromPosition, pointer, toPosition }: ConnectionLineComponentProps) {
   const start = useContext(ConnectionStartContext)?.current;
   const nodes = useStore((s) => s.nodeLookup);
-  const zoom = useStore((s) => s.transform[2]);
+  const [tx, ty, zoom] = useStore((s) => s.transform);
+  // `pointer` is screen pixels from the pane's corner, not flow coordinates.
+  const flowPointer = { x: (pointer.x - tx) / zoom, y: (pointer.y - ty) / zoom };
 
   const from =
     start && start.nodeId === fromNode.id
       ? { ...pointOn(rectOf(fromNode), start), position: start.side as Position }
       : { x: fromX, y: fromY, position: fromPosition };
-  const target = dropTarget(nodes.values(), pointer, zoom, fromNode.id);
+  const target = dropTarget(nodes.values(), flowPointer, zoom, fromNode.id);
   const to = target
     ? { ...pointOn(target.rect, target), position: target.side as Position }
-    : { x: pointer.x, y: pointer.y, position: toPosition };
+    : { ...flowPointer, position: toPosition };
 
   const [path] = curve(from, to, 0);
   return (
