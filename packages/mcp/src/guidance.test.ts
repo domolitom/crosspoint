@@ -26,6 +26,7 @@ const RULES: [string, RegExp][] = [
   ['short labels, detail in the body', /body/],
   ['LR for sequences', /"LR"/],
   ['colour carries meaning', /colou?r[^.]*meaning/i],
+  ['group related boxes', /group/],
 ];
 
 test('the server instructions carry the rules for a diagram that reads well', () => {

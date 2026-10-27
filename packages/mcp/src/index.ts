@@ -35,6 +35,8 @@ const GUIDANCE =
   '- Colour carries meaning, not decoration: amber for attention, red for broken or blocked, ' +
   'green for done. Use it sparingly and say what each colour means.\n' +
   '- Label an edge only when the relationship is not obvious ("on failure", "reads").\n' +
+  '- Give related boxes a group ("Frontend", "Backend", "Data") so they are laid out ' +
+  'together inside a labelled container.\n' +
   '- One diagram per topic: create_diagram with a name that says what it is.';
 
 const server = new McpServer(
@@ -129,6 +131,14 @@ const codeSchema = z
   );
 
 /** Which ends carry an arrowhead. A statement about the relationship, not decoration. */
+const groupSchema = z
+  .string()
+  .min(1)
+  .describe(
+    'Name of a group this node belongs to, such as "Backend" or "Data". Members are laid ' +
+      'out together and drawn inside one labelled container.',
+  );
+
 const arrowSchema = z
   .enum(['forward', 'both', 'none'])
   .describe(
@@ -275,10 +285,11 @@ server.registerTool(
         .describe('Id of an existing node to place this one beneath.'),
       color: colorSchema.optional(),
       code: codeSchema.optional(),
+      group: groupSchema.optional(),
     },
   },
-  async ({ label, body, near, color, code }) =>
-    ok(await applyOp({ op: 'add_node', label, body, near, color, code })),
+  async ({ label, body, near, color, code, group }) =>
+    ok(await applyOp({ op: 'add_node', label, body, near, color, code, group })),
 );
 
 server.registerTool(
@@ -311,6 +322,7 @@ server.registerTool(
               .describe('Override the id derived from the label. Needed when labels collide.'),
             color: colorSchema.optional(),
             code: codeSchema.optional(),
+            group: groupSchema.optional(),
           }),
         )
         .min(1)
@@ -412,11 +424,16 @@ server.registerTool(
             'deleting the diagram.',
         ),
       code: codeSchema.optional(),
+      group: z
+        .string()
+        .min(1)
+        .optional()
+        .describe('Move this node into a named group. Pass "none" to take it out.'),
       diagram: diagramParam,
     },
   },
-  async ({ id, label, body, color, subcanvas, code, diagram }) =>
-    ok(await applyOp({ op: 'update_node', id, label, body, color, subcanvas, code }, diagram)),
+  async ({ id, label, body, color, subcanvas, code, group, diagram }) =>
+    ok(await applyOp({ op: 'update_node', id, label, body, color, subcanvas, code, group }, diagram)),
 );
 
 server.registerTool(
