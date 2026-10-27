@@ -1069,3 +1069,46 @@ test('a group is drawn as a labelled container around its members', async () => 
     return now && holds(now, await box(`.react-flow__node[data-id="${b}"]`)) ? now : null;
   });
 });
+
+/* Node kinds (#25): each draws its shape, and arrows still land on a decision's points. */
+test('each node kind draws its shape', async () => {
+  const seedIn = await freshDiagram('kinds');
+  const kinds = ['database', 'queue', 'actor', 'decision', 'external', 'note'];
+  const ids: Record<string, string> = {};
+  for (const [i, kind] of kinds.entries()) {
+    ids[kind] = await seedIn(`A ${kind}`, (i % 3) * 300, Math.floor(i / 3) * 210);
+    assert.equal((await stack.op({ op: 'update_node', id: ids[kind], kind }, 'kinds')).status, 200);
+  }
+  await fit();
+  const look = (kind: string, pseudo: string | null, prop: string, inner = '') =>
+    until(`${kind} to render`, () =>
+      stack.page.$eval(
+        `.react-flow__node.cp-kind-${kind}[data-id="${ids[kind]}"] ${inner}`.trim(),
+        (el, [pseudo, prop]) => getComputedStyle(el, pseudo).getPropertyValue(prop),
+        [pseudo, prop] as const,
+      ).catch(() => null),
+    );
+  assert.match(await look('database', null, 'border-top-left-radius'), /50% 8px/);
+  assert.match(await look('database', '::before', 'border-radius'), /50%/);
+  assert.match(await look('queue', null, 'border-top-left-radius'), /18px 50%/);
+  assert.match(await look('queue', '::before', 'border-radius'), /50%/);
+  assert.match(await look('actor', '::before', 'mask-image', '.cp-node-label'), /svg/);
+  assert.match(await look('decision', '::before', 'clip-path'), /polygon/);
+  assert.equal(await look('external', null, 'border-top-style'), 'dashed');
+  assert.equal(await look('note', null, 'background-color'), 'rgb(254, 249, 195)');
+});
+
+test('an arrow into a decision lands on one of its points', async () => {
+  const seedIn = await freshDiagram('decision-arrow');
+  const from = await seedIn('Start', 0, 0);
+  const to = await seedIn('Ok?', 300, 0);
+  assert.equal((await stack.op({ op: 'update_node', id: to, kind: 'decision' }, 'decision-arrow')).status, 200);
+  assert.equal((await stack.op({ op: 'add_edge', source: from, target: to }, 'decision-arrow')).status, 200);
+  await fit();
+  const edge = `${from}->${to}`;
+  await until('the edge to render', async () => (await stack.page.locator(`.react-flow__edge[data-id="${edge}"]`).count()) > 0);
+  await until('the decision to take its shape', async () =>
+    (await stack.page.locator(`.react-flow__node.cp-kind-decision[data-id="${to}"]`).count()) > 0,
+  );
+  assertOnPoint(await pathEnd(edge), points(await flowRect(to)).left, 'the left point of the decision');
+});
